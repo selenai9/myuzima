@@ -8,10 +8,10 @@ i18n.use(initReactI18next).init({
     rw: { translation: rw },
     en: { translation: en },
   },
-  lng: "rw", // Default language: Kinyarwanda
+  lng: "en", // CHANGED: Default language is now English
   fallbackLng: "en",
   interpolation: {
-    escapeValue: false, // React already escapes values
+    escapeValue: false, 
   },
 });
 
