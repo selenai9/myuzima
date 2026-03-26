@@ -1,3 +1,5 @@
+// This is the Service Worker script. It serves as the middleman between the app and the internet. Even if the responder is in a remote area with low or no internet, the app still works.
+// To force a cache refresh, please update the version number below.
 const CACHE_NAME = "myuzima-v1";
 const RUNTIME_CACHE = "myuzima-runtime-v1";
 const API_CACHE = "myuzima-api-v1";
