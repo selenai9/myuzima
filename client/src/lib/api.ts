@@ -1,11 +1,8 @@
 import axios, { AxiosInstance, AxiosError } from "axios";
+// NEW: Import our IndexedDB helpers to persist tokens for offline use
+import { storeAuthToken, getAuthToken, clearProfileCache } from "./idb";
 
-const API_BASE_URL = process.env.VITE_API_URL || "http://localhost:3000/api";
-
-interface AuthTokens {
-  accessToken: string;
-  refreshToken: string;
-}
+const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
 
 interface TokenPayload {
   type: "patient" | "responder";
@@ -45,7 +42,6 @@ class APIClient {
       async (error: AxiosError) => {
         const originalRequest = error.config as any;
 
-        // If 401 and we have a refresh token, try to refresh
         if (error.response?.status === 401 && this.refreshToken && !originalRequest._retry) {
           originalRequest._retry = true;
 
@@ -54,42 +50,58 @@ class APIClient {
               refreshToken: this.refreshToken,
             });
 
-            this.setTokens(response.data.accessToken, this.refreshToken);
+            // Persist the new token to IndexedDB after a successful refresh
+            await this.setTokens(response.data.accessToken, this.refreshToken);
+            
             originalRequest.headers.Authorization = `Bearer ${this.accessToken}`;
             return this.client(originalRequest);
           } catch (refreshError) {
-            // Refresh failed, clear tokens and redirect to login
-            this.clearTokens();
+            await this.logout();
             window.location.href = "/";
             return Promise.reject(refreshError);
           }
         }
-
         return Promise.reject(error);
       }
     );
 
-    // Load tokens from localStorage
+    // Initial load of tokens from storage
     this.loadTokens();
   }
 
-  private setTokens(accessToken: string, refreshToken: string) {
+  /**
+   * Async token setter
+   * Saves to memory and persists to IndexedDB/LocalStorage
+   */
+  private async setTokens(accessToken: string, refreshToken: string) {
     this.accessToken = accessToken;
     this.refreshToken = refreshToken;
-    localStorage.setItem("accessToken", accessToken);
+    
+    // Store access token in IndexedDB for robust offline access
+    await storeAuthToken(accessToken);
+    
+    // Store refresh token in localStorage
     localStorage.setItem("refreshToken", refreshToken);
   }
 
-  private loadTokens() {
-    this.accessToken = localStorage.getItem("accessToken");
+  /**
+   * Load tokens from storage
+   * Uses await because IndexedDB lookups are asynchronous
+   */
+  private async loadTokens() {
+    this.accessToken = await getAuthToken() || localStorage.getItem("accessToken");
     this.refreshToken = localStorage.getItem("refreshToken");
   }
 
-  private clearTokens() {
+  /**
+   * Clear all local session data
+   */
+  private async clearTokens() {
     this.accessToken = null;
     this.refreshToken = null;
-    localStorage.removeItem("accessToken");
+    await storeAuthToken(""); // Clear IndexedDB
     localStorage.removeItem("refreshToken");
+    localStorage.removeItem("accessToken");
   }
 
   /**
@@ -106,7 +118,7 @@ class APIClient {
   async patientVerifyOTP(phone: string, code: string) {
     const response = await this.client.post("/auth/verify-otp", { phone, code });
     if (response.data.accessToken && response.data.refreshToken) {
-      this.setTokens(response.data.accessToken, response.data.refreshToken);
+      await this.setTokens(response.data.accessToken, response.data.refreshToken);
     }
     return response.data;
   }
@@ -117,7 +129,7 @@ class APIClient {
   async responderLogin(badgeId: string, pin: string) {
     const response = await this.client.post("/auth/responder/login", { badgeId, pin });
     if (response.data.accessToken && response.data.refreshToken) {
-      this.setTokens(response.data.accessToken, response.data.refreshToken);
+      await this.setTokens(response.data.accessToken, response.data.refreshToken);
     }
     return response.data;
   }
@@ -165,6 +177,15 @@ class APIClient {
   }
 
   /**
+   * Sync Offline Audit Logs
+   * Batch uploads logs saved while the responder was offline
+   */
+  async syncOfflineAuditLogs(logs: any[]) {
+    const response = await this.client.post("/emergency/audit/log", { logs });
+    return response.data;
+  }
+
+  /**
    * Get Offline Sync Profiles
    */
   async getOfflineSyncProfiles() {
@@ -206,19 +227,20 @@ class APIClient {
 
   /**
    * Logout
+   * Clears tokens and wipes sensitive medical data from the local cache
    */
-  logout() {
-    this.clearTokens();
+  async logout() {
+    await this.clearTokens();
+    await clearProfileCache(); // Security: Wipe medical cache on logout
   }
 
   /**
-   * Get current auth state
+   * Get current auth state via JWT decoding
    */
   getAuthState() {
     if (!this.accessToken) return null;
 
     try {
-      // Decode JWT to get payload (basic decode, not verification)
       const parts = this.accessToken.split(".");
       if (parts.length !== 3) return null;
 
