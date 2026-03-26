@@ -1,8 +1,8 @@
 import { Router, Request, Response } from "express";
-import { z } from "zod";
+import { z } from "zort"; // Using 'zod'
 import { getDb } from "../db";
-import { emergencyProfiles, auditLogs } from "../../drizzle/schema"; // Ensure auditLogs is imported from schema
-import { eq, inArray } from "drizzle-orm";
+import { emergencyProfiles, auditLogs } from "../../drizzle/schema";
+import { eq, inArray, and } from "drizzle-orm";
 import { verifyQRPayloadToken, decryptJSON } from "../services/crypto";
 import { writeAuditLog, getPatientAuditLogs } from "../services/audit";
 import { sendProfileAccessNotification } from "../services/otp";
@@ -12,22 +12,18 @@ import { getPatientById } from "../db";
 const router = Router();
 
 /**
- * Validation schema for the QR scan
+ * Validation schemas
  */
 const scanSchema = z.object({
   qrToken: z.string().min(1, "QR token required"),
 });
 
-/**
- * NEW: Validation schema for batch audit logs
- */
 const auditLogBatchSchema = z.object({
   logs: z.array(
     z.object({
-      id: z.string(),
       patientId: z.string(),
-      timestamp: z.string(), // ISO string from frontend
       accessMethod: z.enum(["QR_SCAN", "USSD", "OFFLINE_CACHE"]),
+      timestamp: z.string(),
       deviceIp: z.string().optional(),
     })
   ).min(1, "At least one log required"),
@@ -35,13 +31,12 @@ const auditLogBatchSchema = z.object({
 
 /**
  * POST /emergency/scan
- * Triggered when a Responder scans a physical QR code.
+ * Handles medical profile decryption and triggers patient notification.
  */
 router.post("/scan", authMiddleware, responderAuthMiddleware, async (req: Request, res: Response) => {
   try {
     const responder = (req as any).responder;
     const { qrToken } = scanSchema.parse(req.body);
-
     const db = await getDb();
     if (!db) throw new Error("Database not available");
 
@@ -58,17 +53,22 @@ router.post("/scan", authMiddleware, responderAuthMiddleware, async (req: Reques
     }
 
     const p = profile[0];
+    let decryptedData;
 
-    let bloodType, allergies, medications, conditions, contacts;
     try {
-      bloodType = decryptJSON<string>(p.bloodType);
-      allergies = decryptJSON<any[]>(p.allergies);
-      medications = decryptJSON<any[]>(p.medications);
-      conditions = decryptJSON<string[]>(p.conditions);
-      contacts = decryptJSON<any[]>(p.contacts);
+      decryptedData = {
+        bloodType: decryptJSON<string>(p.bloodType),
+        allergies: decryptJSON<any[]>(p.allergies) || [],
+        medications: decryptJSON<any[]>(p.medications) || [],
+        conditions: decryptJSON<string[]>(p.conditions) || [],
+        contacts: decryptJSON<any[]>(p.contacts) || [],
+      };
     } catch (decryptError) {
       console.error("[Emergency] Decryption failure:", decryptError);
-      return res.status(200).json({ success: true, profile: { id: p.id, dataAvailable: false } });
+      return res.status(200).json({ 
+        success: true, 
+        profile: { id: p.id, patientId: p.patientId, dataAvailable: false, reason: "Encryption mismatch" } 
+      });
     }
 
     const patient = await getPatientById(p.patientId);
@@ -84,60 +84,45 @@ router.post("/scan", authMiddleware, responderAuthMiddleware, async (req: Reques
       profile: {
         id: p.id,
         patientId: p.patientId,
-        bloodType,
-        allergies: allergies || [],
-        medications: medications || [],
-        conditions: conditions || [],
-        contacts: contacts || [],
+        ...decryptedData,
         dataAvailable: true,
       },
     });
-  } catch (error) {
-    res.status(400).json({ error: "Scan failed" });
+  } catch (error: any) {
+    const message = error.message?.includes("expired") ? "QR code expired" : "Scan failed";
+    res.status(400).json({ error: message });
   }
 });
 
 /**
- * NEW: POST /emergency/audit/log
- * Syncs offline audit logs from the PWA to the central database.
+ * POST /emergency/audit/log
+ * Batch syncs offline logs from PWA Service Worker.
  */
 router.post("/audit/log", authMiddleware, responderAuthMiddleware, async (req: Request, res: Response) => {
   try {
     const responder = (req as any).responder;
     const { logs } = auditLogBatchSchema.parse(req.body);
-
     const db = await getDb();
     if (!db) throw new Error("Database not available");
 
-    // Map the logs to match the database schema format
     const logsToInsert = logs.map((log) => ({
-      id: log.id,
-      responderId: responder.id, // Always use current responder ID for security
+      responderId: responder.id,
       patientId: log.patientId,
       accessMethod: log.accessMethod,
       deviceIp: log.deviceIp || req.ip || "offline",
-      createdAt: new Date(log.timestamp),
+      timestamp: new Date(log.timestamp),
     }));
 
-    // Batch insert using Drizzle
     await db.insert(auditLogs).values(logsToInsert);
-
-    res.json({
-      success: true,
-      message: `${logs.length} offline logs synced successfully`,
-    });
+    res.json({ success: true, count: logs.length });
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: "Invalid log format", details: error.errors });
-    }
-    console.error("[Emergency] Batch audit sync error:", error);
-    res.status(500).json({ error: "Failed to sync offline logs" });
+    res.status(400).json({ error: "Sync failed" });
   }
 });
 
 /**
  * GET /emergency/offline-sync
- * Optimized: Uses a single batch query (inArray) instead of a loop.
+ * Optimized batch query to fetch recent history for offline access.
  */
 router.get("/offline-sync", authMiddleware, responderAuthMiddleware, async (req: Request, res: Response) => {
   try {
@@ -145,45 +130,32 @@ router.get("/offline-sync", authMiddleware, responderAuthMiddleware, async (req:
     const db = await getDb();
     if (!db) throw new Error("Database not available");
 
-    const auditLogs = await getPatientAuditLogs(responder.id, 50, 0);
-    
-    if (auditLogs.length === 0) {
-      return res.json({ success: true, profiles: [], count: 0 });
-    }
+    const recentLogs = await getPatientAuditLogs(responder.id, 50, 0);
+    if (recentLogs.length === 0) return res.json({ success: true, profiles: [], count: 0 });
 
-    const patientIds = [...new Set(auditLogs.map(log => log.patientId))];
+    const patientIds = [...new Set(recentLogs.map(l => l.patientId))];
 
     const rawProfiles = await db
       .select()
       .from(emergencyProfiles)
-      .where(inArray(emergencyProfiles.patientId, patientIds));
+      .where(and(inArray(emergencyProfiles.patientId, patientIds), eq(emergencyProfiles.isActive, true)));
 
-    const decryptedProfiles = rawProfiles
-      .filter(p => p.isActive)
-      .map(p => {
-        try {
-          return {
-            id: p.id,
-            patientId: p.patientId,
-            bloodType: decryptJSON<string>(p.bloodType),
-            allergies: decryptJSON<any[]>(p.allergies),
-            medications: decryptJSON<any[]>(p.medications),
-            conditions: decryptJSON<string[]>(p.conditions),
-            contacts: decryptJSON<any[]>(p.contacts),
-          };
-        } catch (err) {
-          return null;
-        }
-      })
-      .filter(p => p !== null);
+    const profiles = rawProfiles.map(p => {
+      try {
+        return {
+          id: p.id,
+          patientId: p.patientId,
+          bloodType: decryptJSON<string>(p.bloodType),
+          allergies: decryptJSON<any[]>(p.allergies),
+          medications: decryptJSON<any[]>(p.medications),
+          conditions: decryptJSON<string[]>(p.conditions),
+          contacts: decryptJSON<any[]>(p.contacts),
+        };
+      } catch { return null; }
+    }).filter(p => p !== null);
 
-    res.json({
-      success: true,
-      profiles: decryptedProfiles,
-      count: decryptedProfiles.length,
-    });
+    res.json({ success: true, profiles, count: profiles.length });
   } catch (error) {
-    console.error("[Emergency] Offline sync error:", error);
     res.status(400).json({ error: "Offline sync failed" });
   }
 });
