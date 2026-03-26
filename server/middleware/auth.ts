@@ -18,8 +18,7 @@ export interface JWTPayload {
 }
 
 /**
- * Extend Express Request type to include our user payload
- * This removes the need for (req as any) in your routes.
+ * Extend Express Request type
  */
 declare global {
   namespace Express {
@@ -30,23 +29,14 @@ declare global {
   }
 }
 
-/**
- * Generate access token (15 minutes)
- */
 export function generateAccessToken(payload: JWTPayload): string {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: ACCESS_TOKEN_EXPIRY });
 }
 
-/**
- * Generate refresh token (7 days)
- */
 export function generateRefreshToken(payload: JWTPayload): string {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: REFRESH_TOKEN_EXPIRY });
 }
 
-/**
- * Verify and decode JWT token
- */
 export function verifyToken(token: string): JWTPayload | null {
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as JWTPayload;
@@ -57,43 +47,42 @@ export function verifyToken(token: string): JWTPayload | null {
 }
 
 /**
- * Express middleware to verify JWT token from Authorization header
+ * UPDATED: Express middleware to verify JWT token from Cookies (C-03)
  */
 export function authMiddleware(req: Request, res: Response, next: NextFunction) {
-  const authHeader = req.headers.authorization;
+  // 1. Check HttpOnly Cookie first (Production behavior)
+  // 2. Fallback to Authorization header (Development/Testing behavior)
+  const token = req.cookies?.accessToken || 
+                (req.headers.authorization?.startsWith("Bearer ") 
+                  ? req.headers.authorization.substring(7) 
+                  : null);
 
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res.status(401).json({ error: "Missing or invalid authorization header" });
+  if (!token) {
+    return res.status(401).json({ error: "Authentication required" });
   }
 
-  const token = authHeader.substring(7);
   const payload = verifyToken(token);
 
   if (!payload) {
-    return res.status(401).json({ error: "Invalid or expired token" });
+    return res.status(401).json({ error: "Invalid or expired session" });
   }
 
-  // Attach payload to request
-  // Because of the 'declare global' above, req.user is now valid TypeScript
   req.user = payload;
   next();
 }
 
 /**
  * Middleware to verify patient authentication
- * Specifically ensures the 'type' is 'patient'
  */
 export function patientAuthMiddleware(req: Request, res: Response, next: NextFunction) {
   if (!req.user || req.user.type !== "patient") {
     return res.status(403).json({ error: "Patient authentication required" });
   }
-
-  // For the recordConsent route, we rely on req.user.id being the Patient's ID
   next();
 }
 
 /**
- * Middleware to verify responder role and badge
+ * Middleware to verify responder role
  */
 export async function responderAuthMiddleware(req: Request, res: Response, next: NextFunction) {
   if (!req.user || req.user.type !== "responder") {
@@ -116,6 +105,5 @@ export function adminAuthMiddleware(req: Request, res: Response, next: NextFunct
   if (!req.user || req.user.role !== "admin") {
     return res.status(403).json({ error: "Admin access required" });
   }
-
   next();
 }
