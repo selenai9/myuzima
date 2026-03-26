@@ -69,37 +69,23 @@ class APIClient {
     this.loadTokens();
   }
 
-  /**
-   * Async token setter
-   * Saves to memory and persists to IndexedDB/LocalStorage
-   */
   private async setTokens(accessToken: string, refreshToken: string) {
     this.accessToken = accessToken;
     this.refreshToken = refreshToken;
-    
-    // Store access token in IndexedDB for robust offline access
     await storeAuthToken(accessToken);
-    
-    // Store refresh token in localStorage
     localStorage.setItem("refreshToken", refreshToken);
+    localStorage.setItem("accessToken", accessToken); // Added for loadTokens consistency
   }
 
-  /**
-   * Load tokens from storage
-   * Uses await because IndexedDB lookups are asynchronous
-   */
   private async loadTokens() {
     this.accessToken = await getAuthToken() || localStorage.getItem("accessToken");
     this.refreshToken = localStorage.getItem("refreshToken");
   }
 
-  /**
-   * Clear all local session data
-   */
   private async clearTokens() {
     this.accessToken = null;
     this.refreshToken = null;
-    await storeAuthToken(""); // Clear IndexedDB
+    await storeAuthToken(""); 
     localStorage.removeItem("refreshToken");
     localStorage.removeItem("accessToken");
   }
@@ -120,6 +106,15 @@ class APIClient {
     if (response.data.accessToken && response.data.refreshToken) {
       await this.setTokens(response.data.accessToken, response.data.refreshToken);
     }
+    return response.data;
+  }
+
+  /**
+   * NEW: Record Patient Consent (H-04 Compliance)
+   * This is called in PatientRegister.tsx after OTP success.
+   */
+  async recordConsent() {
+    const response = await this.client.post("/patient/consent");
     return response.data;
   }
 
@@ -178,7 +173,6 @@ class APIClient {
 
   /**
    * Sync Offline Audit Logs
-   * Batch uploads logs saved while the responder was offline
    */
   async syncOfflineAuditLogs(logs: any[]) {
     const response = await this.client.post("/emergency/audit/log", { logs });
@@ -227,11 +221,10 @@ class APIClient {
 
   /**
    * Logout
-   * Clears tokens and wipes sensitive medical data from the local cache
    */
   async logout() {
     await this.clearTokens();
-    await clearProfileCache(); // Security: Wipe medical cache on logout
+    await clearProfileCache(); 
   }
 
   /**
