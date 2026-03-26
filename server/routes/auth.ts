@@ -8,180 +8,144 @@ import { otpRegisterLimiter, otpVerifyLimiter, responderLoginLimiter } from "../
 
 const router = Router();
 
+// --- Cookie Configuration ---
+const isProduction = process.env.NODE_ENV === "production";
+const COOKIE_OPTIONS = {
+  httpOnly: true, // Prevents JS from reading the cookie
+  secure: isProduction, // Only send over HTTPS in production
+  sameSite: "lax" as const, // Protection against CSRF
+  path: "/",
+};
+
 /**
- * Validation schemas
+ * Helper to set cookies on response
  */
-const registerSchema = z.object({
-  phone: z.string().regex(/^\+?[1-9]\d{1,14}$/, "Invalid phone number"),
-});
-
-const verifyOTPSchema = z.object({
-  phone: z.string().regex(/^\+?[1-9]\d{1,14}$/, "Invalid phone number"),
-  code: z.string().length(6, "OTP must be 6 digits"),
-});
-
-const responderLoginSchema = z.object({
-  badgeId: z.string().min(1, "Badge ID required"),
-  pin: z.string().length(4, "PIN must be 4 digits"),
-});
-
-const refreshTokenSchema = z.object({
-  refreshToken: z.string().min(1, "Refresh token required"),
-});
+const setAuthCookies = (res: Response, accessToken: string, refreshToken: string) => {
+  res.cookie("accessToken", accessToken, { ...COOKIE_OPTIONS, maxAge: 15 * 60 * 1000 }); // 15m
+  res.cookie("refreshToken", refreshToken, { ...COOKIE_OPTIONS, maxAge: 7 * 24 * 60 * 60 * 1000 }); // 7d
+};
 
 /**
  * POST /auth/register
- * Patient registration: send OTP via SMS
  */
 router.post("/register", otpRegisterLimiter, async (req: Request, res: Response) => {
   try {
-    const { phone } = registerSchema.parse(req.body);
-
-    // Check if patient already exists
+    const { phone } = z.object({ phone: z.string().regex(/^\+?[1-9]\d{1,14}$/) }).parse(req.body);
     let patient = await getPatientByPhone(phone);
     if (!patient) {
-      // Create new patient record
       await createPatient(phone);
       patient = await getPatientByPhone(phone);
     }
-
-    // Generate and send OTP
-    const otpCode = await createOTP(phone);
-
-    res.json({
-      success: true,
-      message: "OTP sent to phone number",
-      phone,
-    });
+    await createOTP(phone);
+    res.json({ success: true, message: "OTP sent" });
   } catch (error) {
-    console.error("[Auth] Registration error:", error);
-    res.status(400).json({
-      error: error instanceof Error ? error.message : "Registration failed",
-    });
+    res.status(400).json({ error: "Registration failed" });
   }
 });
 
 /**
  * POST /auth/verify-otp
- * Verify OTP and issue JWT tokens
+ * UPDATED: Now sets HttpOnly Cookies
  */
 router.post("/verify-otp", otpVerifyLimiter, async (req: Request, res: Response) => {
   try {
-    const { phone, code } = verifyOTPSchema.parse(req.body);
-
-    // Verify OTP
+    const { phone, code } = z.object({ phone: z.string(), code: z.string() }).parse(req.body);
     await verifyOTP(phone, code);
-
-    // Get patient
     const patient = await getPatientByPhone(phone);
-    if (!patient) {
-      throw new Error("Patient not found");
-    }
+    if (!patient) throw new Error("Patient not found");
 
-    // Generate tokens
-    const payload: JWTPayload = {
-      type: "patient",
-      id: patient.id,
-      phone,
-    };
-
+    const payload: JWTPayload = { type: "patient", id: patient.id, phone };
     const accessToken = generateAccessToken(payload);
     const refreshToken = generateRefreshToken(payload);
 
+    // C-03: Set secure cookies
+    setAuthCookies(res, accessToken, refreshToken);
+
     res.json({
       success: true,
-      accessToken,
-      refreshToken,
-      patient: {
-        id: patient.id,
-        phone: patient.phone,
-        phoneVerified: patient.phoneVerified,
-        consentGiven: patient.consentGiven,
-      },
+      accessToken, // We still return this so the PWA can store the "active" indicator in IDB
+      patient: { id: patient.id, consentGiven: patient.consentGiven },
     });
   } catch (error) {
-    console.error("[Auth] OTP verification error:", error);
-    res.status(401).json({
-      error: error instanceof Error ? error.message : "OTP verification failed",
-    });
+    res.status(401).json({ error: "Verification failed" });
   }
 });
 
 /**
  * POST /auth/refresh
- * Issue new access token using refresh token
+ * UPDATED: Uses cookie for token source
  */
 router.post("/refresh", async (req: Request, res: Response) => {
   try {
-    const { refreshToken } = refreshTokenSchema.parse(req.body);
+    const refreshToken = req.cookies.refreshToken; // Read from cookie instead of body
+    if (!refreshToken) throw new Error("No refresh token");
 
     const payload = verifyToken(refreshToken);
-    if (!payload) {
-      throw new Error("Invalid or expired refresh token");
-    }
+    if (!payload) throw new Error("Invalid token");
 
-    // Generate new access token
     const accessToken = generateAccessToken(payload);
+    
+    // Rotate access token cookie
+    res.cookie("accessToken", accessToken, { ...COOKIE_OPTIONS, maxAge: 15 * 60 * 1000 });
 
-    res.json({
-      success: true,
-      accessToken,
-    });
+    res.json({ success: true, accessToken });
   } catch (error) {
-    console.error("[Auth] Token refresh error:", error);
-    res.status(401).json({
-      error: error instanceof Error ? error.message : "Token refresh failed",
-    });
+    res.status(401).json({ error: "Refresh failed" });
   }
 });
 
 /**
+ * NEW: GET /auth/me
+ * Allows the client to check who is logged in (since JS can't read cookies)
+ */
+router.get("/me", async (req: Request, res: Response) => {
+  const token = req.cookies.accessToken;
+  if (!token) return res.status(401).json({ user: null });
+
+  const payload = verifyToken(token);
+  if (!payload) return res.status(401).json({ user: null });
+
+  res.json({ user: payload });
+});
+
+/**
+ * NEW: POST /auth/logout
+ * UPDATED: Clears cookies from the browser
+ */
+router.post("/logout", (req: Request, res: Response) => {
+  res.clearCookie("accessToken", COOKIE_OPTIONS);
+  res.clearCookie("refreshToken", COOKIE_OPTIONS);
+  res.json({ success: true, message: "Logged out" });
+});
+
+/**
  * POST /auth/responder/login
- * Responder login via badge ID and PIN
+ * UPDATED: Now sets HttpOnly Cookies
  */
 router.post("/responder/login", responderLoginLimiter, async (req: Request, res: Response) => {
   try {
-    const { badgeId, pin } = responderLoginSchema.parse(req.body);
-
-    // Get responder by badge ID
+    const { badgeId, pin } = z.object({ badgeId: z.string(), pin: z.string() }).parse(req.body);
     const responder = await getResponderByBadgeId(badgeId);
-    if (!responder || !responder.isActive) {
-      throw new Error("Invalid badge ID or responder not active");
-    }
-
-    // Verify PIN
+    
+    if (!responder || !responder.isActive) throw new Error("Invalid credentials");
     const pinValid = await bcryptjs.compare(pin, responder.pinHash);
-    if (!pinValid) {
-      throw new Error("Invalid PIN");
-    }
+    if (!pinValid) throw new Error("Invalid credentials");
 
-    // Generate tokens
-    const payload: JWTPayload = {
-      type: "responder",
-      id: responder.id,
-      badgeId: responder.badgeId,
-      role: responder.role,
+    const payload: JWTPayload = { 
+      type: "responder", 
+      id: responder.id, 
+      badgeId: responder.badgeId, 
+      role: responder.role 
     };
 
     const accessToken = generateAccessToken(payload);
     const refreshToken = generateRefreshToken(payload);
 
-    res.json({
-      success: true,
-      accessToken,
-      refreshToken,
-      responder: {
-        id: responder.id,
-        badgeId: responder.badgeId,
-        name: responder.name,
-        role: responder.role,
-      },
-    });
+    setAuthCookies(res, accessToken, refreshToken);
+
+    res.json({ success: true, accessToken, responder: { id: responder.id, name: responder.name } });
   } catch (error) {
-    console.error("[Auth] Responder login error:", error);
-    res.status(401).json({
-      error: error instanceof Error ? error.message : "Login failed",
-    });
+    res.status(401).json({ error: "Login failed" });
   }
 });
 
