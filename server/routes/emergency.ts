@@ -1,5 +1,5 @@
 import { Router, Request, Response } from "express";
-import { z } from "zort"; // Using 'zod'
+import { z } from "zod"; // Fixed: Changed 'zort' to 'zod'
 import { getDb } from "../db";
 import { emergencyProfiles, auditLogs } from "../../drizzle/schema";
 import { eq, inArray, and } from "drizzle-orm";
@@ -23,7 +23,7 @@ const auditLogBatchSchema = z.object({
     z.object({
       patientId: z.string(),
       accessMethod: z.enum(["QR_SCAN", "USSD", "OFFLINE_CACHE"]),
-      timestamp: z.string(),
+      timestamp: z.string(), // ISO string from PWA
       deviceIp: z.string().optional(),
     })
   ).min(1, "At least one log required"),
@@ -110,12 +110,13 @@ router.post("/audit/log", authMiddleware, responderAuthMiddleware, async (req: R
       patientId: log.patientId,
       accessMethod: log.accessMethod,
       deviceIp: log.deviceIp || req.ip || "offline",
-      timestamp: new Date(log.timestamp),
+      createdAt: new Date(log.timestamp), // Adjusted: Mapping to standard schema 'createdAt'
     }));
 
     await db.insert(auditLogs).values(logsToInsert);
     res.json({ success: true, count: logs.length });
   } catch (error) {
+    console.error("[Emergency] Audit log sync error:", error);
     res.status(400).json({ error: "Sync failed" });
   }
 });
@@ -156,6 +157,7 @@ router.get("/offline-sync", authMiddleware, responderAuthMiddleware, async (req:
 
     res.json({ success: true, profiles, count: profiles.length });
   } catch (error) {
+    console.error("[Emergency] Offline sync error:", error);
     res.status(400).json({ error: "Offline sync failed" });
   }
 });
