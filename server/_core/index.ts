@@ -77,6 +77,7 @@ async function startServer() {
     console.log(`  POST /api/auth/verify-otp`);
     console.log(`  POST /api/auth/refresh`);
     console.log(`  POST /api/auth/responder/login`);
+    console.log(`  POST /api/patient/consent (Law 058/2021)`); // Added this log
     console.log(`  POST /api/patient/profile`);
     console.log(`  PUT /api/patient/profile`);
     console.log(`  GET /api/patient/profile`);
