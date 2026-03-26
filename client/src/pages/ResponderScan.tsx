@@ -1,16 +1,64 @@
-/**
- * REVISED RESPONDER SCAN COMPONENT
- * Handles QR scanning, Offline/Online state, and local caching.
- */
+import { useState, useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
+import { useLocation } from "wouter";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Loader2, AlertCircle, AlertTriangle, Wifi, WifiOff, Zap } from "lucide-react";
+import { Html5QrcodeScanner } from "html5-qrcode";
+import { apiClient } from "@/lib/api";
+// UPDATED: Added getProfileByToken to our imports from the IDB library
+import { cacheProfile, isOnline, getProfileByToken } from "@/lib/idb";
+import { toast } from "sonner";
 
-// ... (imports remain the same)
+/**
+ * Interface defining the medical data structure
+ */
+interface EmergencyProfile {
+  id: string;
+  patientId: string;
+  bloodType: string;
+  allergies: any[];
+  medications: any[];
+  conditions: string[];
+  contacts: any[];
+  dataAvailable: boolean;
+  dataUnavailableReason?: string;
+}
 
 export default function ResponderScan() {
-  // ... (states and effects remain the same)
+  const { t } = useTranslation();
+  const [, setLocation] = useLocation();
+  const [step, setStep] = useState<"login" | "scan" | "view">("login");
+  const [badgeId, setBadgeId] = useState("");
+  const [pin, setPin] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [online, setOnline] = useState(isOnline());
+  const [scannerReady, setScannerReady] = useState(false);
+  const [profile, setProfile] = useState<EmergencyProfile | null>(null);
+  const [torchOn, setTorchOn] = useState(false);
+  const scannerRef = useRef<Html5QrcodeScanner | null>(null);
 
   /**
-   * Main Handler for QR Scan results
-   * Logic: Try Online first (to get latest data), Fallback to Offline cache.
+   * Listen for browser online/offline events to toggle app behavior
+   */
+  useEffect(() => {
+    const handleOnline = () => setOnline(true);
+    const handleOffline = () => setOnline(false);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+
+  /**
+   * Handle the QR Scan Result
+   * This is the core logic for MyUZIMA's emergency access
    */
   const handleQRScan = async (qrToken: string) => {
     setLoading(true);
@@ -18,33 +66,31 @@ export default function ResponderScan() {
 
     try {
       if (online) {
-        // 1. ONLINE MODE: Fetch fresh data from the server
+        // --- PATH A: ONLINE ---
+        // Fetch fresh medical data from the server
         const response = await apiClient.scanQRCode(qrToken);
-        setProfile(response.profile);
+        const freshProfile = response.profile;
+        setProfile(freshProfile);
 
-        // 2. CACHING: Store the profile locally for future offline use
-        // We now explicitly include the qrToken so we can find it later without internet
-        if (response.profile.dataAvailable) {
-          const profileWithTimestamp = {
-            ...response.profile,
-            qrToken: qrToken, // Explicitly save the token used to find this profile
+        // Update the local cache so this person is "safe" for future offline use
+        if (freshProfile.dataAvailable) {
+          await cacheProfile({
+            ...freshProfile,
+            qrToken: qrToken, // Save the token so we can find it later without internet
             lastScanned: new Date(),
-          };
-          await cacheProfile(profileWithTimestamp);
+          });
         }
       } else {
-        // 3. OFFLINE MODE: Search the local IndexedDB cache
-        const cachedProfiles = await getAllCachedProfiles();
-        
-        // REVISED: Match against the specific qrToken string instead of the profile ID
-        const found = cachedProfiles.find((p) => p.qrToken === qrToken);
+        // --- PATH B: OFFLINE ---
+        // Use the IndexedDB index lookup we created in lib/idb.ts
+        const cached = await getProfileByToken(qrToken);
 
-        if (found) {
-          // Map cached data back to the profile view
-          setProfile({ ...found, dataAvailable: true } as EmergencyProfile);
+        if (cached) {
+          setProfile({ ...cached, dataAvailable: true } as EmergencyProfile);
+          toast.info(t("responder.offline_mode_active"));
         } else {
-          // If not in cache and no internet, we cannot help the responder
-          throw new Error(t("errors.profile_not_found"));
+          // If not in our top 50 local cache and no signal, we can't fetch it
+          throw new Error(t("errors.profile_not_found_offline"));
         }
       }
 
@@ -58,5 +104,29 @@ export default function ResponderScan() {
     }
   };
 
-  // ... (Return and UI components remain the same)
+  /**
+   * Initialize the camera scanner using html5-qrcode
+   */
+  const initializeScanner = () => {
+    if (scannerRef.current) return;
+
+    scannerRef.current = new Html5QrcodeScanner(
+      "qr-scanner",
+      { fps: 10, qrbox: { width: 250, height: 250 } },
+      false
+    );
+
+    scannerRef.current.render(
+      (decodedText) => handleQRScan(decodedText),
+      (error) => console.error("Scanner tracking...", error)
+    );
+
+    setScannerReady(true);
+  };
+
+  // ... (Rest of UI rendering like handleLogin and toggleTorch remain the same)
+  return (
+    // The UI code you provided previously goes here
+    <div>{/* UI elements */}</div>
+  );
 }
