@@ -121,8 +121,8 @@ function openDB() {
       if (!db.objectStoreNames.contains("profiles")) {
         db.createObjectStore("profiles", { keyPath: "id" });
       }
-      if (!db.objectStoreNames.contains("auditLogQueue")) {
-        db.createObjectStore("auditLogQueue", { keyPath: "id" });
+      if (!db.objectStoreNames.contains("auditLogs")) {
+        db.createObjectStore("auditLogs", { keyPath: "id" });
       }
       // CRITICAL: New store for Auth tokens and Session metadata
       if (!db.objectStoreNames.contains("metadata")) {
