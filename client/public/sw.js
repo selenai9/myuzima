@@ -1,12 +1,10 @@
-// MyUZIMA Service Worker - v1.0.4
-// Optimized for Emergency QR Access & Secure Loader Integration
+// MyUZIMA Service Worker - v1.0.5
+// Added: Version 3 IDB Support & Authenticated Batch Audit Sync
 
-const CACHE_NAME = "myuzima-v1.0.4";
+const CACHE_NAME = "myuzima-v1.0.5";
 const RUNTIME_CACHE = "myuzima-runtime-v1";
 const API_CACHE = "myuzima-api-v1";
 
-// URLs to cache on install
-// Ensures main entry points are here so the SecureLoader can trigger
 const STATIC_ASSETS = [
   "/",
   "/index.html",
@@ -16,20 +14,15 @@ const STATIC_ASSETS = [
   "/src/App.tsx",
 ];
 
-// Install event - cache static assets
+// --- Install & Activate (Standard PWA Lifecycle) ---
 self.addEventListener("install", (event) => {
-  console.log("[SW] Installing MyUZIMA Service Worker");
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(STATIC_ASSETS);
-    })
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
   );
   self.skipWaiting();
 });
 
-// Activate event - clean up old caches
 self.addEventListener("activate", (event) => {
-  console.log("[SW] Activating MyUZIMA Service Worker");
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
@@ -42,40 +35,27 @@ self.addEventListener("activate", (event) => {
   self.clients.claim();
 });
 
-// Fetch event - The "Traffic Controller" for SecureLoader
+// --- Fetch Event (Traffic Controller) ---
 self.addEventListener("fetch", (event) => {
   const { request } = event;
   const url = new URL(request.url);
-
   if (url.origin !== location.origin) return;
 
-  // 1. API requests (Medical Data) - Network-first with cache fallback
   if (url.pathname.startsWith("/api/")) {
     return event.respondWith(networkFirstStrategy(request));
   }
 
-  // 2. Navigation (Page Refresh/Deep Links) 
-  // This ensures that even if offline, the app loads index.html
-  // which then runs App.tsx and shows SecureLoader.
   if (request.mode === "navigate") {
-    event.respondWith(
-      fetch(request).catch(() => caches.match("/index.html"))
-    );
+    event.respondWith(fetch(request).catch(() => caches.match("/index.html")));
     return;
   }
 
-  // 3. Static assets - Cache-first
-  if (
-    request.method === "GET" &&
-    url.pathname.match(/\.(js|css|woff2?|svg|png|jpg|jpeg|webp)$/i)
-  ) {
+  if (request.method === "GET" && url.pathname.match(/\.(js|css|woff2?|svg|png|jpg|jpeg|webp)$/i)) {
     return event.respondWith(cacheFirstStrategy(request));
   }
 });
 
-/**
- * Network-first: Try to get fresh data, fall back to emergency cache
- */
+// --- Strategies ---
 async function networkFirstStrategy(request) {
   try {
     const response = await fetch(request);
@@ -99,50 +79,96 @@ async function cacheFirstStrategy(request) {
     cache.put(request, response.clone());
     return response;
   } catch {
-    return new Response("Asset Unavailable Offline", { status: 404 });
+    return new Response("Asset Unavailable", { status: 404 });
   }
 }
 
+// --- NEW: Authenticated Background Sync Logic ---
+
 /**
- * REVISED DATABASE LOGIC
- * Added "metadata" store so SecureLoader can verify auth status offline.
+ * Open IndexedDB (Must match Version 3 from idb.ts)
  */
 function openDB() {
   return new Promise((resolve, reject) => {
-    // Incrementing version to 2 to trigger the new store creation
-    const request = indexedDB.open("myuzima", 2); 
+    // UPDATED: Version 3 to match the high-speed index version
+    const request = indexedDB.open("myuzima", 3); 
 
     request.onerror = () => reject(request.error);
     request.onsuccess = () => resolve(request.result);
 
     request.onupgradeneeded = (event) => {
       const db = event.target.result;
-
       if (!db.objectStoreNames.contains("profiles")) {
-        db.createObjectStore("profiles", { keyPath: "id" });
+        const store = db.createObjectStore("profiles", { keyPath: "id" });
+        store.createIndex("by-token", "qrToken");
       }
       if (!db.objectStoreNames.contains("auditLogs")) {
         db.createObjectStore("auditLogs", { keyPath: "id" });
       }
-      // CRITICAL: New store for Auth tokens and Session metadata
       if (!db.objectStoreNames.contains("metadata")) {
-        db.createObjectStore("metadata"); 
+        db.createObjectStore("metadata", { keyPath: "key" });
       }
     };
   });
 }
 
-// Background Sync for Audit Logs
 self.addEventListener("sync", (event) => {
   if (event.tag === "sync-audit-logs") {
     event.waitUntil(syncAuditLogs());
   }
 });
 
+/**
+ * Authenticated Batch Sync
+ * 1. Grabs token from 'metadata'
+ * 2. Grabs unsynced logs from 'auditLogs'
+ * 3. Sends to /api/emergency/audit/log
+ */
 async function syncAuditLogs() {
-  // ... Logic remains same as your original, now supported by the new openDB()
-}
+  const db = await openDB();
+  const tx = db.transaction(["auditLogs", "metadata"], "readwrite");
+  const logStore = tx.objectStore("auditLogs");
+  const metaStore = tx.objectStore("metadata");
 
-// Push & Notification Listeners (Keep as they were)
-self.addEventListener("push", (event) => { /* ... */ });
-self.addEventListener("notificationclick", (event) => { /* ... */ });
+  // 1. Get Auth Token
+  const tokenRequest = metaStore.get("auth_token");
+  const tokenData = await new Promise((res) => (tokenRequest.onsuccess = () => res(tokenRequest.result)));
+  
+  if (!tokenData || !tokenData.value) {
+    console.warn("[SW] Sync aborted: No auth token found in IndexedDB");
+    return;
+  }
+
+  // 2. Get Unsynced Logs
+  const allLogsRequest = logStore.getAll();
+  const allLogs = await new Promise((res) => (allLogsRequest.onsuccess = () => res(allLogsRequest.result)));
+  const unsyncedLogs = allLogs.filter(log => !log.synced);
+
+  if (unsyncedLogs.length === 0) return;
+
+  try {
+    // 3. POST to the Batch Route we created in emergency.ts
+    const response = await fetch("/api/emergency/audit/log", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${tokenData.value}`
+      },
+      body: JSON.stringify({ logs: unsyncedLogs })
+    });
+
+    if (response.ok) {
+      // 4. Mark as synced in IDB
+      const updateTx = db.transaction("auditLogs", "readwrite");
+      const updateStore = updateTx.objectStore("auditLogs");
+      
+      for (const log of unsyncedLogs) {
+        log.synced = true;
+        updateStore.put(log);
+      }
+      console.log(`[SW] Successfully synced ${unsyncedLogs.length} logs`);
+    }
+  } catch (err) {
+    console.error("[SW] Sync failed:", err);
+  }
+}
