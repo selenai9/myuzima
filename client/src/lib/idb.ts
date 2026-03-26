@@ -63,15 +63,44 @@ export async function initDB() {
 }
 
 // --- AUTH HELPERS (Shared with Service Worker) ---
+
+/**
+ * Stores a session indicator (e.g., "cookie-session-active") 
+ * to let the Service Worker know it should attempt authenticated requests.
+ */
 export async function storeAuthToken(token: string) {
   const database = await initDB();
   await database.put("metadata", { key: "auth_token", value: token });
 }
 
+/**
+ * Retrieves the session indicator.
+ */
 export async function getAuthToken(): Promise<string | null> {
   const database = await initDB();
   const entry = await database.get("metadata", "auth_token");
   return entry?.value ?? null;
+}
+
+/**
+ * NEW: Explicitly removes the session indicator from IDB.
+ * Used during logout or when a 401 refresh fails.
+ */
+export async function clearAuthToken() {
+  const database = await initDB();
+  await database.delete("metadata", "auth_token");
+}
+
+/**
+ * NEW: Security utility to wipe the medical cache.
+ * Vital for shared devices to ensure one patient's data 
+ * isn't left in the browser for the next person.
+ */
+export async function clearProfileCache() {
+  const database = await initDB();
+  const tx = database.transaction("profiles", "readwrite");
+  await tx.store.clear();
+  await tx.done;
 }
 
 // --- PROFILE CACHE (LRU Logic) ---
