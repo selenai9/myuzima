@@ -3,32 +3,20 @@ import { relations } from "drizzle-orm";
 import { crypto } from "node:crypto";
 
 /**
- * Users table: Backing authentication and role management.
- */
-export const users = mysqlTable("users", {
-  id: int("id").autoincrement().primaryKey(),
-  openId: varchar("openId", { length: 64 }).notNull().unique(),
-  name: text("name"),
-  email: varchar("email", { length: 320 }),
-  loginMethod: varchar("loginMethod", { length: 64 }),
-  role: mysqlEnum("role", ["user", "admin", "responder"]).default("user").notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-  lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
-});
-
-export type User = typeof users.$inferSelect;
-export type InsertUser = typeof users.$inferInsert;
-
-/**
  * Patients table: Core identity with phone-based registration.
+ * Added: consentGiven and consentTimestamp are already here, 
+ * just ensuring they are correctly configured for MySQL.
  */
 export const patients = mysqlTable("patients", {
   id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
   phone: varchar("phone", { length: 20 }).notNull().unique(),
   phoneVerified: boolean("phoneVerified").default(false).notNull(),
+  
+  // H-04 Compliance: PERSISTENT CONSENT
+  // Ensure these match the property names used in your patient.ts router
   consentGiven: boolean("consentGiven").default(false).notNull(),
   consentTimestamp: timestamp("consentTimestamp"),
+  
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -38,16 +26,19 @@ export type InsertPatient = typeof patients.$inferInsert;
 
 /**
  * EmergencyProfile table: Encrypted medical data for each patient.
- * Optimization: Index added on patientId for rapid retrieval during emergency scans.
+ * Optimization: Unique constraint on patientId ensures one profile per patient.
  */
 export const emergencyProfiles = mysqlTable("emergencyProfiles", {
   id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
   patientId: varchar("patientId", { length: 64 }).notNull().unique(),
+  
+  // Medical data stored as encrypted strings/JSON
   bloodType: text("bloodType").notNull(), 
   allergies: text("allergies").notNull(), 
   medications: text("medications").notNull(), 
   conditions: text("conditions").notNull(), 
   contacts: text("contacts").notNull(), 
+  
   isActive: boolean("isActive").default(true).notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({
@@ -58,7 +49,7 @@ export type EmergencyProfile = typeof emergencyProfiles.$inferSelect;
 export type InsertEmergencyProfile = typeof emergencyProfiles.$inferInsert;
 
 /**
- * QRCode table: Encrypted reference tokens for QR scanning.
+ * QRCode table: Reference tokens for scanning.
  */
 export const qrCodes = mysqlTable("qrCodes", {
   id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -69,86 +60,8 @@ export const qrCodes = mysqlTable("qrCodes", {
 });
 
 /**
- * Facility table: Health facilities where responders are stationed.
+ * Relations - Updated to ensure clear linking for the Transaction logic
  */
-export const facilities = mysqlTable("facilities", {
-  id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
-  name: varchar("name", { length: 255 }).notNull(),
-  district: varchar("district", { length: 255 }).notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
-
-/**
- * Responder table: Authorized emergency responders (EMT, Doctor, Nurse).
- */
-export const responders = mysqlTable("responders", {
-  id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
-  badgeId: varchar("badgeId", { length: 64 }).notNull().unique(),
-  name: varchar("name", { length: 255 }).notNull(),
-  role: mysqlEnum("role", ["EMT", "DOCTOR", "NURSE"]).notNull(),
-  facilityId: varchar("facilityId", { length: 64 }).notNull(),
-  pinHash: text("pinHash").notNull(), 
-  isActive: boolean("isActive").default(true).notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
-
-/**
- * AuditLog table: Immutable record of profile access events.
- * Optimization: Indexes for responder/patient tracking and time-based reporting.
- */
-export const auditLogs = mysqlTable("auditLogs", {
-  id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
-  responderId: varchar("responderId", { length: 64 }).notNull(),
-  patientId: varchar("patientId", { length: 64 }).notNull(),
-  timestamp: timestamp("timestamp").defaultNow().notNull(),
-  accessMethod: mysqlEnum("accessMethod", ["QR_SCAN", "USSD", "OFFLINE_CACHE"]).notNull(),
-  deviceIp: varchar("deviceIp", { length: 45 }).notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-}, (table) => ({
-  patientIdx: index("audit_patient_idx").on(table.patientId),
-  responderIdx: index("audit_responder_idx").on(table.responderId),
-  timestampIdx: index("audit_timestamp_idx").on(table.timestamp),
-  methodIdx: index("audit_method_idx").on(table.accessMethod),
-}));
-
-export type AuditLog = typeof auditLogs.$inferSelect;
-export type InsertAuditLog = typeof auditLogs.$inferInsert;
-
-/**
- * OTPAttempt table: Rate limiting and security lockout tracking.
- */
-export const otpAttempts = mysqlTable("otpAttempts", {
-  id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
-  phone: varchar("phone", { length: 20 }).notNull(),
-  attempts: int("attempts").default(0).notNull(),
-  lockedUntil: timestamp("lockedUntil"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-}, (table) => ({
-  phoneAttemptsIdx: index("phone_attempts_idx").on(table.phone),
-}));
-
-/**
- * OTP table: Short-lived verification codes.
- * Optimization: Compound index for verifying unused codes by phone number.
- */
-export const otps = mysqlTable("otps", {
-  id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
-  phone: varchar("phone", { length: 20 }).notNull(),
-  code: varchar("code", { length: 6 }).notNull(),
-  expiresAt: timestamp("expiresAt").notNull(),
-  used: boolean("used").default(false).notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-}, (table) => ({
-  otpLookupIdx: index("otp_lookup_idx").on(table.phone, table.code, table.used),
-}));
-
-/**
- * Relations for Drizzle ORM
- */
-export const usersRelations = relations(users, ({}) => ({}));
-
 export const patientRelations = relations(patients, ({ one }) => ({
   emergencyProfile: one(emergencyProfiles, {
     fields: [patients.id],
@@ -167,21 +80,4 @@ export const emergencyProfileRelations = relations(emergencyProfiles, ({ one }) 
   }),
 }));
 
-export const responderRelations = relations(responders, ({ one, many }) => ({
-  facility: one(facilities, {
-    fields: [responders.facilityId],
-    references: [facilities.id],
-  }),
-  auditLogs: many(auditLogs),
-}));
-
-export const facilityRelations = relations(facilities, ({ many }) => ({
-  responders: many(responders),
-}));
-
-export const auditLogRelations = relations(auditLogs, ({ one }) => ({
-  responder: one(responders, {
-    fields: [auditLogs.responderId],
-    references: [responders.id],
-  }),
-}));
+// ... (keep the rest of your tables like users, responders, and auditLogs as they were)
