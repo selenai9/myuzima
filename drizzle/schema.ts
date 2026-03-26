@@ -4,7 +4,7 @@ import { relations } from "drizzle-orm";
 /**
  * Core user table backing auth flow.
  */
-export const users = mysqlTable("users", {
+export const auditLogs = mysqlTable("audit_logs", {
   id: int("id").autoincrement().primaryKey(),
   openId: varchar("openId", { length: 64 }).notNull().unique(),
   name: text("name"),
