@@ -25,7 +25,6 @@ export default function PatientRegister() {
     setLoading(true);
 
     try {
-      // Validate phone format
       if (!/^\+?[1-9]\d{1,14}$/.test(phone)) {
         throw new Error(t("errors.invalid_phone"));
       }
@@ -48,7 +47,6 @@ export default function PatientRegister() {
     setLoading(true);
 
     try {
-      // Validate OTP format
       if (!/^\d{6}$/.test(otp)) {
         throw new Error(t("errors.invalid_otp"));
       }
@@ -70,8 +68,22 @@ export default function PatientRegister() {
       return;
     }
 
-    // Redirect to profile creation
-    setLocation("/patient/profile");
+    setLoading(true);
+    setError("");
+
+    try {
+      // H-04: Record consent on the server with a timestamp.
+      // This call now includes the 'loading' block to prevent double-tapping.
+      await apiClient.recordConsent();
+      toast.success(t("common.success"));
+      setLocation("/patient/profile");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t("errors.network_error");
+      setError(message);
+      toast.error(message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -177,6 +189,7 @@ export default function PatientRegister() {
                     checked={consentGiven}
                     onChange={(e) => setConsentGiven(e.target.checked)}
                     className="w-4 h-4 rounded border-gray-300"
+                    disabled={loading}
                   />
                   <span className="text-sm text-amber-900">{t("patient.consent")}</span>
                 </label>
@@ -185,9 +198,16 @@ export default function PatientRegister() {
               <Button
                 onClick={handleConsentSubmit}
                 className="w-full"
-                disabled={!consentGiven}
+                disabled={!consentGiven || loading}
               >
-                {t("common.next")}
+                {loading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    {t("common.loading")}
+                  </>
+                ) : (
+                  t("common.next")
+                )}
               </Button>
             </div>
           )}
