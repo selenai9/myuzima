@@ -21,7 +21,7 @@ services:
     networks:
       - myuzima-network
 
-  # API Server
+  # API Server - Now internal-only
   api:
     build:
       context: .
@@ -34,7 +34,6 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
-      # SECURE: Pass individual components instead of building a URL string here
       DB_HOST: db
       DB_NAME: ${DB_NAME:?Required}
       DB_USER: ${DB_USER:?Required}
@@ -52,8 +51,7 @@ services:
       BUILT_IN_FORGE_API_KEY: ${BUILT_IN_FORGE_API_KEY:?Required}
       VITE_FRONTEND_FORGE_API_URL: ${VITE_FRONTEND_FORGE_API_URL:?Required}
       VITE_FRONTEND_FORGE_API_KEY: ${VITE_FRONTEND_FORGE_API_KEY:?Required}
-    ports:
-      - "3000:3000"
+    # PORTS REMOVED: API is now only reachable by Nginx via myuzima-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
       interval: 30s
@@ -63,7 +61,7 @@ services:
     networks:
       - myuzima-network
 
-  # Nginx Reverse Proxy
+  # Nginx Reverse Proxy - The ONLY public entry point
   nginx:
     image: nginx:alpine
     container_name: myuzima-nginx
