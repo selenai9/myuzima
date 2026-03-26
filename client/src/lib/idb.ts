@@ -1,10 +1,14 @@
 import { openDB, DBSchema, IDBPDatabase } from "idb";
 
+/**
+ * Define the structure of our IndexedDB
+ */
 interface EmergencyProfileDB extends DBSchema {
   profiles: {
     key: string;
     value: {
       id: string;
+      qrToken: string; // Added: Required for offline matching
       patientId: string;
       bloodType: string;
       allergies: any[];
@@ -13,6 +17,8 @@ interface EmergencyProfileDB extends DBSchema {
       contacts: any[];
       lastScanned: Date;
     };
+    // We define an index so we can search by qrToken directly
+    indexes: { "by-token": string }; 
   };
   auditLogs: {
     key: string;
@@ -31,19 +37,29 @@ interface EmergencyProfileDB extends DBSchema {
 let db: IDBPDatabase<EmergencyProfileDB> | null = null;
 
 /**
- * Initialize IndexedDB
+ * Initialize IndexedDB with versioning and indexes
  */
 export async function initDB() {
   if (db) return db;
 
-  db = await openDB<EmergencyProfileDB>("myuzima", 1, {
-    upgrade(database: IDBPDatabase<EmergencyProfileDB>) {
-      // Create profiles store
+  // We increment the version to 2 to trigger the 'upgrade' for the new index
+  db = await openDB<EmergencyProfileDB>("myuzima", 2, {
+    upgrade(database: IDBPDatabase<EmergencyProfileDB>, oldVersion) {
+      // 1. Create or Update Profiles Store
+      let profileStore;
       if (!database.objectStoreNames.contains("profiles")) {
-        database.createObjectStore("profiles", { keyPath: "id" });
+        profileStore = database.createObjectStore("profiles", { keyPath: "id" });
+      } else {
+        profileStore = (database as any).transaction.objectStore("profiles");
       }
 
-      // Create audit logs store
+      // 2. Add the QR Token index if it doesn't exist
+      // This allows: database.getFromIndex("profiles", "by-token", token)
+      if (!profileStore.indexNames.contains("by-token")) {
+        profileStore.createIndex("by-token", "qrToken");
+      }
+
+      // 3. Create Audit Logs Store
       if (!database.objectStoreNames.contains("auditLogs")) {
         database.createObjectStore("auditLogs", { keyPath: "id" });
       }
@@ -54,15 +70,16 @@ export async function initDB() {
 }
 
 /**
- * Save profile to IndexedDB cache
+ * Save profile to cache with LRU (Least Recently Used) eviction
+ * @param profile - The profile object including the qrToken
  */
 export async function cacheProfile(profile: any) {
   const database = await initDB();
 
-  // Get all profiles to check count
+  // Get all profiles to check if we are over the 50-profile limit
   const allProfiles = await database.getAll("profiles");
 
-  // If we have 50+ profiles, remove oldest one (LRU eviction)
+  // If limit reached, remove the one that hasn't been scanned in the longest time
   if (allProfiles.length >= 50) {
     const oldest = allProfiles.reduce((prev: any, current: any) =>
       new Date(prev.lastScanned) < new Date(current.lastScanned) ? prev : current
@@ -70,7 +87,7 @@ export async function cacheProfile(profile: any) {
     await database.delete("profiles", oldest.id);
   }
 
-  // Save profile
+  // Save the profile - the spread operator ensures qrToken is included
   await database.put("profiles", {
     ...profile,
     lastScanned: new Date(),
@@ -78,7 +95,16 @@ export async function cacheProfile(profile: any) {
 }
 
 /**
- * Get profile from cache
+ * OPTIMIZED: Get profile from cache using the QR Token index
+ * This is much faster than fetching all profiles and filtering in JS
+ */
+export async function getProfileByToken(qrToken: string) {
+  const database = await initDB();
+  return await database.getFromIndex("profiles", "by-token", qrToken);
+}
+
+/**
+ * Get profile by its internal ID
  */
 export async function getCachedProfile(profileId: string) {
   const database = await initDB();
@@ -86,7 +112,7 @@ export async function getCachedProfile(profileId: string) {
 }
 
 /**
- * Get all cached profiles
+ * Get all cached profiles (useful for debug or bulk sync)
  */
 export async function getAllCachedProfiles() {
   const database = await initDB();
@@ -94,7 +120,7 @@ export async function getAllCachedProfiles() {
 }
 
 /**
- * Clear profile cache
+ * Clear profile cache (e.g., on responder logout)
  */
 export async function clearProfileCache() {
   const database = await initDB();
@@ -102,7 +128,7 @@ export async function clearProfileCache() {
 }
 
 /**
- * Queue audit log for sync
+ * Queue audit log for sync when internet is restored
  */
 export async function queueAuditLog(auditLog: any) {
   const database = await initDB();
@@ -113,7 +139,7 @@ export async function queueAuditLog(auditLog: any) {
 }
 
 /**
- * Get unsynced audit logs
+ * Get all logs that haven't been sent to the server yet
  */
 export async function getUnsyncedAuditLogs() {
   const database = await initDB();
@@ -122,19 +148,19 @@ export async function getUnsyncedAuditLogs() {
 }
 
 /**
- * Mark audit log as synced
+ * Mark a local log as synced after successful API call
  */
 export async function markAuditLogSynced(auditLogId: string) {
   const database = await initDB();
   const log = await database.get("auditLogs", auditLogId);
   if (log) {
-    (log as any).synced = true;
+    log.synced = true;
     await database.put("auditLogs", log);
   }
 }
 
 /**
- * Clear audit logs
+ * Remove all audit logs from local storage
  */
 export async function clearAuditLogs() {
   const database = await initDB();
@@ -142,14 +168,14 @@ export async function clearAuditLogs() {
 }
 
 /**
- * Check if online
+ * Simple check for browser's online status
  */
 export function isOnline() {
   return navigator.onLine;
 }
 
 /**
- * Listen for online/offline changes
+ * Event listener for network state changes
  */
 export function onOnlineStatusChange(callback: (online: boolean) => void) {
   const onlineHandler = () => callback(true);
@@ -158,7 +184,6 @@ export function onOnlineStatusChange(callback: (online: boolean) => void) {
   window.addEventListener("online", onlineHandler);
   window.addEventListener("offline", offlineHandler);
 
-  // Return unsubscribe function
   return () => {
     window.removeEventListener("online", onlineHandler);
     window.removeEventListener("offline", offlineHandler);
