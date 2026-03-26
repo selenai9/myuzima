@@ -3,11 +3,11 @@
 ENV_FILE=".env"
 
 if [ -f "$ENV_FILE" ]; then
-    echo "⚠️  $ENV_FILE already exists. Stopping to protect existing keys."
+    echo "$ENV_FILE already exists. Stopping to protect existing keys."
     exit 1
 fi
 
-echo "🔐 Generating unique security keys for MyUZIMA..."
+echo "Generating unique security keys for MyUZIMA..."
 
 # Generate 32-byte (256-bit) random hex strings
 JWT_SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
