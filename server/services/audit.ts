@@ -1,11 +1,12 @@
 import { getDb } from "../db";
 import { auditLogs, InsertAuditLog } from "../../drizzle/schema";
-import { eq, and, gte, lte } from "drizzle-orm";
+import { eq, and, gte, lte, count } from "drizzle-orm";
 
 /**
- * Write an immutable audit log entry
- * Audit logs are append-only and cannot be modified or deleted
- * Database trigger enforces immutability by preventing UPDATE/DELETE operations
+ * IMMUTABLE AUDIT LOGGING
+ * Pattern: Append-only ledger.
+ * Purpose: Provides a tamper-proof record of every time a patient's medical 
+ * data is accessed.
  */
 export async function writeAuditLog(
   responderId: string,
@@ -24,50 +25,49 @@ export async function writeAuditLog(
     timestamp: new Date(),
   };
 
+  // Execution of the insert. Database-level triggers should prevent 
+  // any future UPDATE or DELETE on this record.
   await db.insert(auditLogs).values(auditEntry);
 }
 
 /**
- * Retrieve audit logs for a patient
- * Used for showing access history to the patient
+ * PATIENT-FACING LOGS
+ * Fetches history so patients can monitor who has accessed their profile.
  */
 export async function getPatientAuditLogs(patientId: string, limit: number = 50, offset: number = 0) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const logs = await db
+  return await db
     .select()
     .from(auditLogs)
     .where(eq(auditLogs.patientId, patientId))
     .orderBy(auditLogs.timestamp)
     .limit(limit)
     .offset(offset);
-
-  return logs;
 }
 
 /**
- * Retrieve audit logs for a responder
- * Used for admin dashboard to track responder activity
+ * RESPONDER-FACING LOGS
+ * Used for administrative oversight of specific healthcare providers.
  */
 export async function getResponderAuditLogs(responderId: string, limit: number = 50, offset: number = 0) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const logs = await db
+  return await db
     .select()
     .from(auditLogs)
     .where(eq(auditLogs.responderId, responderId))
     .orderBy(auditLogs.timestamp)
     .limit(limit)
     .offset(offset);
-
-  return logs;
 }
 
 /**
- * Retrieve all audit logs with pagination and filtering
- * Used for admin dashboard
+ * GLOBAL AUDIT RETRIEVAL
+ * Advanced filtering for admin dashboards. 
+ * Implements dynamic 'WHERE' clause construction.
  */
 export async function getAllAuditLogs(
   limit: number = 100,
@@ -83,39 +83,26 @@ export async function getAllAuditLogs(
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const conditions: any[] = [];
+  const conditions = [];
+  if (filters?.responderId) conditions.push(eq(auditLogs.responderId, filters.responderId));
+  if (filters?.patientId) conditions.push(eq(auditLogs.patientId, filters.patientId));
+  if (filters?.accessMethod) conditions.push(eq(auditLogs.accessMethod, filters.accessMethod));
+  if (filters?.startDate) conditions.push(gte(auditLogs.timestamp, filters.startDate));
+  if (filters?.endDate) conditions.push(lte(auditLogs.timestamp, filters.endDate));
 
-  if (filters?.responderId) {
-    conditions.push(eq(auditLogs.responderId, filters.responderId));
-  }
-  if (filters?.patientId) {
-    conditions.push(eq(auditLogs.patientId, filters.patientId));
-  }
-  if (filters?.accessMethod) {
-    conditions.push(eq(auditLogs.accessMethod, filters.accessMethod));
-  }
-  if (filters?.startDate) {
-    conditions.push(gte(auditLogs.timestamp, filters.startDate));
-  }
-  if (filters?.endDate) {
-    conditions.push(lte(auditLogs.timestamp, filters.endDate));
-  }
-
-  const baseQuery = db.select().from(auditLogs);
-
-  let query: any = baseQuery;
+  // Build query dynamically based on whether conditions exist
+  const query = db.select().from(auditLogs);
   if (conditions.length > 0) {
-    query = baseQuery.where(and(...conditions));
+    query.where(and(...conditions));
   }
 
-  const logs = await query.orderBy(auditLogs.timestamp).limit(limit).offset(offset);
-
-  return logs;
+  return await query.orderBy(auditLogs.timestamp).limit(limit).offset(offset);
 }
 
 /**
- * Count total audit log entries
- * Used for pagination
+ * OPTIMIZED AGGREGATION: COUNT
+ * Replaced memory-intensive 'select *' with SQL 'COUNT()' aggregation.
+ * Efficiency: O(1) transfer instead of O(N).
  */
 export async function countAuditLogs(filters?: {
   responderId?: string;
@@ -127,31 +114,18 @@ export async function countAuditLogs(filters?: {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const conditions: any[] = [];
+  const conditions = [];
+  if (filters?.responderId) conditions.push(eq(auditLogs.responderId, filters.responderId));
+  if (filters?.patientId) conditions.push(eq(auditLogs.patientId, filters.patientId));
+  if (filters?.accessMethod) conditions.push(eq(auditLogs.accessMethod, filters.accessMethod));
+  if (filters?.startDate) conditions.push(gte(auditLogs.timestamp, filters.startDate));
+  if (filters?.endDate) conditions.push(lte(auditLogs.timestamp, filters.endDate));
 
-  if (filters?.responderId) {
-    conditions.push(eq(auditLogs.responderId, filters.responderId));
-  }
-  if (filters?.patientId) {
-    conditions.push(eq(auditLogs.patientId, filters.patientId));
-  }
-  if (filters?.accessMethod) {
-    conditions.push(eq(auditLogs.accessMethod, filters.accessMethod));
-  }
-  if (filters?.startDate) {
-    conditions.push(gte(auditLogs.timestamp, filters.startDate));
-  }
-  if (filters?.endDate) {
-    conditions.push(lte(auditLogs.timestamp, filters.endDate));
-  }
+  // SQL: SELECT count(*) FROM audit_logs WHERE ...
+  const [result] = await db
+    .select({ total: count() })
+    .from(auditLogs)
+    .where(conditions.length > 0 ? and(...conditions) : undefined);
 
-  const baseQuery = db.select().from(auditLogs);
-
-  let query: any = baseQuery;
-  if (conditions.length > 0) {
-    query = baseQuery.where(and(...conditions));
-  }
-
-  const result = await query;
-  return result.length;
+  return result.total;
 }
