@@ -11,10 +11,23 @@ const REFRESH_TOKEN_EXPIRY = "7d";
  */
 export interface JWTPayload {
   type: "patient" | "responder";
-  id: string;
+  id: string; // This is the patientId or responderId
   phone?: string;
   badgeId?: string;
   role?: string;
+}
+
+/**
+ * Extend Express Request type to include our user payload
+ * This removes the need for (req as any) in your routes.
+ */
+declare global {
+  namespace Express {
+    interface Request {
+      user?: JWTPayload;
+      responder?: any;
+    }
+  }
 }
 
 /**
@@ -60,8 +73,22 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
     return res.status(401).json({ error: "Invalid or expired token" });
   }
 
-  // Attach payload to request for downstream handlers
-  (req as any).user = payload;
+  // Attach payload to request
+  // Because of the 'declare global' above, req.user is now valid TypeScript
+  req.user = payload;
+  next();
+}
+
+/**
+ * Middleware to verify patient authentication
+ * Specifically ensures the 'type' is 'patient'
+ */
+export function patientAuthMiddleware(req: Request, res: Response, next: NextFunction) {
+  if (!req.user || req.user.type !== "patient") {
+    return res.status(403).json({ error: "Patient authentication required" });
+  }
+
+  // For the recordConsent route, we rely on req.user.id being the Patient's ID
   next();
 }
 
@@ -69,20 +96,16 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
  * Middleware to verify responder role and badge
  */
 export async function responderAuthMiddleware(req: Request, res: Response, next: NextFunction) {
-  const payload = (req as any).user as JWTPayload | undefined;
-
-  if (!payload || payload.type !== "responder") {
+  if (!req.user || req.user.type !== "responder") {
     return res.status(403).json({ error: "Responder authentication required" });
   }
 
-  // Verify responder exists and is active
-  const responder = await getResponderById(payload.id);
+  const responder = await getResponderById(req.user.id);
   if (!responder || !responder.isActive) {
     return res.status(403).json({ error: "Responder not found or inactive" });
   }
 
-  // Attach responder to request
-  (req as any).responder = responder;
+  req.responder = responder;
   next();
 }
 
@@ -90,23 +113,8 @@ export async function responderAuthMiddleware(req: Request, res: Response, next:
  * Middleware to verify admin role
  */
 export function adminAuthMiddleware(req: Request, res: Response, next: NextFunction) {
-  const payload = (req as any).user as JWTPayload | undefined;
-
-  if (!payload || payload.role !== "admin") {
+  if (!req.user || req.user.role !== "admin") {
     return res.status(403).json({ error: "Admin access required" });
-  }
-
-  next();
-}
-
-/**
- * Middleware to verify patient authentication
- */
-export function patientAuthMiddleware(req: Request, res: Response, next: NextFunction) {
-  const payload = (req as any).user as JWTPayload | undefined;
-
-  if (!payload || payload.type !== "patient") {
-    return res.status(403).json({ error: "Patient authentication required" });
   }
 
   next();
