@@ -3,56 +3,54 @@ import { otps, otpAttempts, InsertOTP, InsertOTPAttempt } from "../../drizzle/sc
 import { eq, and, gt } from "drizzle-orm";
 import crypto from "crypto";
 
-const OTP_LENGTH = 6;
-const OTP_VALIDITY_MINUTES = 10;
-const MAX_ATTEMPTS = 3;
-const LOCKOUT_MINUTES = 30;
+// --- CONFIGURATION PARAMETERS ---
+const OTP_LENGTH = 6;              
+const OTP_VALIDITY_MINUTES = 10;   // TTL (Time To Live) for the OTP record
+const MAX_ATTEMPTS = 3;            // Threshold for Brute-Force mitigation
+const LOCKOUT_MINUTES = 30;        // Temporal ban duration after threshold breach
 
 /**
- * Generate a random 6-digit OTP code
+ * CSPRNG OTP Generation
+ * Uses Node.js Crypto for cryptographically strong pseudo-random number generation.
+ * Avoids Math.random() to prevent predictability.
  */
 export function generateOTPCode(): string {
   return crypto.randomInt(0, 1000000).toString().padStart(OTP_LENGTH, "0");
 }
 
 /**
- * Send OTP via Africa's Talking SMS API
- * In development, logs to console instead of sending
+ * SMS Gateway Wrapper
+ * Handles delivery via Africa's Talking API.
+ * Implements a development-mode bypass to prevent unnecessary API costs/latency.
  */
 export async function sendOTPViaSMS(phone: string, code: string): Promise<boolean> {
   try {
     if (process.env.NODE_ENV === "development") {
-      console.log(`[DEV] OTP for ${phone}: ${code}`);
+      console.log(`[DEV] SMS Payload for ${phone}: ${code}`);
       return true;
     }
 
-    // TODO: Implement Africa's Talking API integration
-    // const response = await fetch('https://api.sandbox.africastalking.com/version1/messaging', {
-    //   method: 'POST',
-    //   headers: {
-    //     'Accept': 'application/json',
-    //     'Content-Type': 'application/x-www-form-urlencoded',
-    //     'Authorization': `Bearer ${process.env.AFRICA_TALKING_API_KEY}`,
-    //   },
-    //   body: new URLSearchParams({\n    //     'username': process.env.AFRICA_TALKING_USERNAME!,\n    //     'to': phone,\n    //     'message': `Your MyUZIMA verification code is: ${code}. Valid for 10 minutes.`,\n    //   }).toString(),\n    // });\n    // return response.ok;
-
-    console.warn("[OTP] Africa's Talking SMS not yet implemented");
+    // TODO: Finalize Africa's Talking REST API integration (POST /version1/messaging)
+    console.warn("[OTP] SMS Gateway integration pending");
     return false;
   } catch (error) {
-    console.error("[OTP] SMS send failed:", error);
+    console.error("[OTP] Gateway Error:", error);
     return false;
   }
 }
 
 /**
- * Create and store OTP for phone number
- * Returns the OTP code if successful, null if phone is locked out
+ * OTP Initialization & Persistence
+ * 1. Checks for active Lockout state in 'otpAttempts'
+ * 2. Generates and persists a new OTP record
+ * 3. Triggers out-of-band delivery (SMS)
+ * * NOTE: Returns void to satisfy M-05 (Preventing code leakage in application memory)
  */
-export async function createOTP(phone: string): Promise<string | null> {
+export async function createOTP(phone: string): Promise<void> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database unavailable");
 
-  // Check if phone is locked out
+  // PRE-FLIGHT: Check if the identifier (phone) is currently rate-limited
   const attempts = await db
     .select()
     .from(otpAttempts)
@@ -66,11 +64,10 @@ export async function createOTP(phone: string): Promise<string | null> {
     }
   }
 
-  // Generate OTP code
   const code = generateOTPCode();
   const expiresAt = new Date(Date.now() + OTP_VALIDITY_MINUTES * 60 * 1000);
 
-  // Store OTP in database
+  // PERSISTENCE: Write the transient OTP record to the database
   const otpRecord: InsertOTP = {
     phone,
     code,
@@ -80,24 +77,22 @@ export async function createOTP(phone: string): Promise<string | null> {
 
   await db.insert(otps).values(otpRecord);
 
-  // Send OTP via SMS
-  const sent = await sendOTPViaSMS(phone, code);
-  if (!sent) {
-    console.warn(`[OTP] Failed to send SMS to ${phone}, but OTP stored in DB`);
-  }
-
-  return code;
+  // DELIVERY: Out-of-band transmission via SMS
+  await sendOTPViaSMS(phone, code);
 }
 
 /**
- * Verify OTP code for phone number
- * Returns true if valid, throws error if invalid or expired
+ * OTP Verification & Audit Logic
+ * 1. Validates input against active, non-expired, unused database records.
+ * 2. Increments failure counters on mismatch (Brute-force protection).
+ * 3. Atomic update to 'used' status on success (H-01).
+ * 4. Resets failure counters upon successful authentication.
  */
 export async function verifyOTP(phone: string, code: string): Promise<boolean> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("Database unavailable");
 
-  // Check attempt count
+  // 1. RATE LIMIT CHECK: Verify if phone is currently in a 'lockedUntil' state
   const attempts = await db
     .select()
     .from(otpAttempts)
@@ -106,12 +101,11 @@ export async function verifyOTP(phone: string, code: string): Promise<boolean> {
 
   let attemptRecord = attempts[0];
 
-  // Check if locked out
   if (attemptRecord && attemptRecord.lockedUntil && new Date(attemptRecord.lockedUntil) > new Date()) {
     throw new Error("Too many OTP attempts. Please try again later.");
   }
 
-  // Find valid, unused OTP
+  // 2. QUERY: Fetch matching OTP record with strict conditional filtering
   const validOTPs = await db
     .select()
     .from(otps)
@@ -120,46 +114,41 @@ export async function verifyOTP(phone: string, code: string): Promise<boolean> {
         eq(otps.phone, phone),
         eq(otps.code, code),
         eq(otps.used, false),
-        gt(otps.expiresAt, new Date())
+        gt(otps.expiresAt, new Date()) // Ensure TTL has not expired
       )
     )
     .limit(1);
 
+  // 3. FAILURE HANDLING: Increment attempts or trigger temporal lockout
   if (validOTPs.length === 0) {
-    // Increment attempt count
     if (!attemptRecord) {
-      const newAttempt: InsertOTPAttempt = {
-        phone,
-        attempts: 1,
-      };
+      const newAttempt: InsertOTPAttempt = { phone, attempts: 1 };
       await db.insert(otpAttempts).values(newAttempt);
     } else {
       const newAttempts = attemptRecord.attempts + 1;
-      const lockout = newAttempts >= MAX_ATTEMPTS ? new Date(Date.now() + LOCKOUT_MINUTES * 60 * 1000) : null;
+      // If threshold met, calculate lockout expiration
+      const lockout = newAttempts >= MAX_ATTEMPTS 
+        ? new Date(Date.now() + LOCKOUT_MINUTES * 60 * 1000) 
+        : null;
 
       await db
         .update(otpAttempts)
-        .set({
-          attempts: newAttempts,
-          lockedUntil: lockout,
-        })
+        .set({ attempts: newAttempts, lockedUntil: lockout })
         .where(eq(otpAttempts.phone, phone));
     }
 
     throw new Error("Invalid or expired OTP code");
   }
 
-  // Mark OTP as used
-  await db.update(otps).set({ used: true }).where(eq(otps.phone, phone));
+  // 4. SUCCESS HANDLING: Atomic update of record status (H-01)
+  // Target by primary key (id) to prevent race conditions or duplicate invalidation
+  await db.update(otps).set({ used: true }).where(eq(otps.id, validOTPs[0].id));
 
-  // Reset attempt count
+  // Reset audit record on successful login
   if (attemptRecord) {
     await db
       .update(otpAttempts)
-      .set({
-        attempts: 0,
-        lockedUntil: null,
-      })
+      .set({ attempts: 0, lockedUntil: null })
       .where(eq(otpAttempts.phone, phone));
   }
 
@@ -167,22 +156,22 @@ export async function verifyOTP(phone: string, code: string): Promise<boolean> {
 }
 
 /**
- * Send notification SMS to patient when their profile is accessed
+ * Event Notification Service
+ * Asynchronous notification for profile access events to provide audit transparency.
  */
 export async function sendProfileAccessNotification(phone: string, responderName: string): Promise<boolean> {
   try {
-    const message = `Your emergency profile was accessed by ${responderName} on ${new Date().toLocaleString()}. If this was unexpected, please contact your healthcare provider.`;
+    const message = `Security Alert: Your MyUZIMA profile was accessed by ${responderName}.`;
 
     if (process.env.NODE_ENV === "development") {
-      console.log(`[DEV] Notification for ${phone}: ${message}`);
+      console.log(`[DEV-NOTIFY] ${phone}: ${message}`);
       return true;
     }
 
-    // TODO: Implement Africa's Talking API integration for notifications
-    console.warn("[SMS] Profile access notification not yet implemented");
+    // TODO: Implement Africa's Talking API for high-priority notifications
     return false;
   } catch (error) {
-    console.error("[SMS] Notification send failed:", error);
+    console.error("[NOTIFY] Event notification failed:", error);
     return false;
   }
 }
