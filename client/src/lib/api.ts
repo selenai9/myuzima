@@ -1,8 +1,12 @@
 import axios, { AxiosInstance, AxiosError } from "axios";
-// Keep IndexedDB for offline decryption support (Service Worker)
-import { storeAuthToken, getAuthToken, clearProfileCache } from "./idb";
+import { storeAuthToken, clearAuthToken } from "./idb";
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
+const API_BASE_URL = "/api";
+
+// C-03: Tokens are stored in HttpOnly cookies set by the server.
+// The client never reads or writes token values — that's the entire point.
+// We keep a lightweight in-memory flag so the UI knows whether a session exists,
+// but we NEVER put the token string into localStorage or any JS-readable store.
 
 interface TokenPayload {
   type: "patient" | "responder";
@@ -21,48 +25,38 @@ class APIClient {
       headers: {
         "Content-Type": "application/json",
       },
-      // C-03: Required to send/receive HttpOnly cookies automatically
+      // C-03: withCredentials ensures the HttpOnly cookie is sent on every request
       withCredentials: true,
     });
 
-    // Response interceptor for token refresh and IDB synchronization
+    // Response interceptor — on 401 try a silent cookie refresh, then give up
     this.client.interceptors.response.use(
-      (response) => {
-        // If the server returns a new token in the body (as a fallback or for SW), store it in IDB
-        if (response.data.accessToken) {
-          storeAuthToken(response.data.accessToken);
-        }
-        return response;
-      },
+      (response) => response,
       async (error: AxiosError) => {
         const originalRequest = error.config as any;
 
-        // If 401, attempt to refresh the cookie automatically
         if (error.response?.status === 401 && !originalRequest._retry) {
           originalRequest._retry = true;
 
           try {
-            // The refresh cookie is sent automatically by the browser
-            const response = await axios.post(`${API_BASE_URL}/auth/refresh`, {}, { withCredentials: true });
-            
-            if (response.data.accessToken) {
-              await storeAuthToken(response.data.accessToken);
-            }
-            
+            // The refresh token is an HttpOnly cookie; we just POST to the endpoint.
+            // If the cookie is valid the server rotates the access_token cookie silently.
+            await axios.post(`${API_BASE_URL}/auth/refresh`, {}, { withCredentials: true });
             return this.client(originalRequest);
-          } catch (refreshError) {
-            await this.logout();
+          } catch {
+            // Refresh failed — clear the IDB token for the service worker and redirect
+            await clearAuthToken();
             window.location.href = "/";
-            return Promise.reject(refreshError);
           }
         }
+
         return Promise.reject(error);
       }
     );
   }
 
   /**
-   * Patient Registration
+   * Patient Registration — send OTP
    */
   async patientRegister(phone: string) {
     const response = await this.client.post("/auth/register", { phone });
@@ -70,22 +64,17 @@ class APIClient {
   }
 
   /**
-   * Patient OTP Verification
-   * On success, server sets HttpOnly cookies
+   * Verify OTP — server sets HttpOnly access_token + refresh_token cookies
    */
   async patientVerifyOTP(phone: string, code: string) {
     const response = await this.client.post("/auth/verify-otp", { phone, code });
-    if (response.data.accessToken) {
-      await storeAuthToken(response.data.accessToken);
-    }
-    return response.data;
-  }
-
-  /**
-   * H-04: Record Patient Consent
-   */
-  async recordConsent() {
-    const response = await this.client.post("/patient/consent");
+    // C-06: Store a token indicator in IDB so the service worker can authenticate
+    // background sync requests. We use a placeholder since the real token is HttpOnly.
+    // The SW will send credentials:include which carries the cookie automatically;
+    // the IDB value is a fallback Authorization header for non-browser clients.
+    // Note: this is NOT the actual JWT — it's just a signal the session is active.
+    // In a future iteration the server can return a limited-scope SW token here.
+    await storeAuthToken("cookie-session-active");
     return response.data;
   }
 
@@ -94,12 +83,9 @@ class APIClient {
    */
   async responderLogin(badgeId: string, pin: string) {
     const response = await this.client.post("/auth/responder/login", { badgeId, pin });
-    if (response.data.accessToken) {
-      await storeAuthToken(response.data.accessToken);
-    }
+    await storeAuthToken("cookie-session-active");
     return response.data;
   }
-
   /**
    * Create Emergency Profile
    */
@@ -125,7 +111,15 @@ class APIClient {
   }
 
   /**
-   * Download QR Card
+   * H-04: Record patient consent with server timestamp (Rwanda Law 058/2021)
+   */
+  async recordConsent() {
+    const response = await this.client.post("/patient/consent");
+    return response.data;
+  }
+
+  /**
+   * Download QR Card as PDF
    */
   async downloadQRCard() {
     const response = await this.client.get("/patient/qr", {
@@ -139,14 +133,6 @@ class APIClient {
    */
   async scanQRCode(qrToken: string) {
     const response = await this.client.post("/emergency/scan", { qrToken });
-    return response.data;
-  }
-
-  /**
-   * Sync Offline Audit Logs
-   */
-  async syncOfflineAuditLogs(logs: any[]) {
-    const response = await this.client.post("/emergency/audit/log", { logs });
     return response.data;
   }
 
@@ -191,37 +177,16 @@ class APIClient {
   }
 
   /**
-   * Logout
-   * Clears cookies on server and wipes local medical cache
+   * Logout — ask server to clear the HttpOnly cookies
    */
   async logout() {
     try {
       await this.client.post("/auth/logout");
     } finally {
-      await storeAuthToken(""); // Clear IDB
-      await clearProfileCache(); // Security: Wipe medical cache
+      // C-06: Clear IDB token so the service worker stops sending auth headers
+      await clearAuthToken();
+      window.location.href = "/";
     }
-  }
-
-  /**
-   * Check Auth Status
-   * Since cookies are invisible to JS, we call a 'me' endpoint to see who we are
-   */
-  async getAuthState(): Promise<TokenPayload | null> {
-    try {
-      const response = await this.client.get("/auth/me");
-      return response.data.user;
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * Simple check if session is likely active based on IDB
-   */
-  async isAuthenticated() {
-    const token = await getAuthToken();
-    return !!token;
   }
 }
 
