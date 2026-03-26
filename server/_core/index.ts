@@ -1,5 +1,6 @@
 import "dotenv/config";
 import express from "express";
+import cookieParser from "cookie-parser"; // Added this
 import { createServer } from "http";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
@@ -35,9 +36,14 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 async function startServer() {
   const app = express();
   const server = createServer(app);
-  // Configure body parser with larger size limit for file uploads
+
+  // Configure body parser
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  
+  // C-03: Enable cookie parsing to read HttpOnly tokens
+  app.use(cookieParser()); // Added this
+
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
   
@@ -56,6 +62,7 @@ async function startServer() {
       createContext,
     })
   );
+
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);
@@ -73,22 +80,23 @@ async function startServer() {
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
     console.log(`MyUZIMA API routes registered:`);
-    console.log(`  POST /api/auth/register`);
-    console.log(`  POST /api/auth/verify-otp`);
-    console.log(`  POST /api/auth/refresh`);
-    console.log(`  POST /api/auth/responder/login`);
-    console.log(`  POST /api/patient/consent (Law 058/2021)`); // Added this log
-    console.log(`  POST /api/patient/profile`);
-    console.log(`  PUT /api/patient/profile`);
-    console.log(`  GET /api/patient/profile`);
-    console.log(`  GET /api/patient/qr`);
-    console.log(`  POST /api/emergency/scan`);
-    console.log(`  GET /api/emergency/offline-sync`);
-    console.log(`  POST /api/admin/responder`);
+    console.log(`  POST   /api/auth/register`);
+    console.log(`  POST   /api/auth/verify-otp`);
+    console.log(`  POST   /api/auth/refresh`);
+    console.log(`  POST   /api/auth/logout`);           // Added to logs
+    console.log(`  GET    /api/auth/me`);               // Added to logs
+    console.log(`  POST   /api/patient/consent`);       // H-04 log
+    console.log(`  POST   /api/patient/profile`);
+    console.log(`  PUT    /api/patient/profile`);
+    console.log(/api/patient/profile`);
+    console.log(`  GET    /api/patient/qr`);
+    console.log(`  POST   /api/emergency/scan`);
+    console.log(`  GET    /api/emergency/offline-sync`);
+    console.log(`  POST   /api/admin/responder`);
     console.log(`  DELETE /api/admin/responder/:id`);
-    console.log(`  GET /api/admin/audit-logs`);
-    console.log(`  GET /api/admin/stats`);
-    console.log(`  GET /api/health`);
+    console.log(`  GET    /api/admin/audit-logs`);
+    console.log(`  GET    /api/admin/stats`);
+    console.log(`  GET    /api/health`);
   });
 }
 
