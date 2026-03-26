@@ -1,8 +1,5 @@
 import { openDB, DBSchema, IDBPDatabase } from "idb";
 
-/**
- * Define the structure of our IndexedDB
- */
 interface EmergencyProfileDB extends DBSchema {
   profiles: {
     key: string;
@@ -31,33 +28,23 @@ interface EmergencyProfileDB extends DBSchema {
       synced: boolean;
     };
   };
-  // NEW: Store for application settings and the Auth Token
   metadata: {
     key: string;
-    value: any;
+    value: { key: string; value: any };
   };
 }
 
 let db: IDBPDatabase<EmergencyProfileDB> | null = null;
 
-/**
- * Initialize IndexedDB with versioning and indexes
- */
 export async function initDB() {
   if (db) return db;
 
-  // Bumped version to 3 to trigger the creation of the metadata store
+  // Version 3 ensures all stores and indexes are created
   db = await openDB<EmergencyProfileDB>("myuzima", 3, {
     upgrade(database: IDBPDatabase<EmergencyProfileDB>) {
-      // 1. Profiles Store
-      let profileStore;
+      // 1. Profiles Store with Index
       if (!database.objectStoreNames.contains("profiles")) {
-        profileStore = database.createObjectStore("profiles", { keyPath: "id" });
-      } else {
-        profileStore = (database as any).transaction.objectStore("profiles");
-      }
-
-      if (!profileStore.indexNames.contains("by-token")) {
+        const profileStore = database.createObjectStore("profiles", { keyPath: "id" });
         profileStore.createIndex("by-token", "qrToken");
       }
 
@@ -66,35 +53,28 @@ export async function initDB() {
         database.createObjectStore("auditLogs", { keyPath: "id" });
       }
 
-      // 3. NEW: Metadata Store (for Auth Token)
+      // 3. Metadata Store (Shared with Service Worker)
       if (!database.objectStoreNames.contains("metadata")) {
-        database.createObjectStore("metadata");
+        database.createObjectStore("metadata", { keyPath: "key" });
       }
     },
   });
-
   return db;
 }
 
-/**
- * Save Auth Token to metadata store
- */
+// --- AUTH HELPERS (Shared with Service Worker) ---
 export async function storeAuthToken(token: string) {
   const database = await initDB();
-  await database.put("metadata", token, "auth_token");
+  await database.put("metadata", { key: "auth_token", value: token });
 }
 
-/**
- * Retrieve Auth Token from metadata store
- */
-export async function getAuthToken() {
+export async function getAuthToken(): Promise<string | null> {
   const database = await initDB();
-  return await database.get("metadata", "auth_token");
+  const entry = await database.get("metadata", "auth_token");
+  return entry?.value ?? null;
 }
 
-/**
- * Save profile to cache with LRU (Least Recently Used) eviction
- */
+// --- PROFILE CACHE (LRU Logic) ---
 export async function cacheProfile(profile: any) {
   const database = await initDB();
   const allProfiles = await database.getAll("profiles");
@@ -113,31 +93,14 @@ export async function cacheProfile(profile: any) {
 }
 
 /**
- * Get profile from cache using the QR Token index
+ * High-speed offline lookup for QR Scans
  */
 export async function getProfileByToken(qrToken: string) {
   const database = await initDB();
   return await database.getFromIndex("profiles", "by-token", qrToken);
 }
 
-export async function getCachedProfile(profileId: string) {
-  const database = await initDB();
-  return await database.get("profiles", profileId);
-}
-
-export async function getAllCachedProfiles() {
-  const database = await initDB();
-  return await database.getAll("profiles");
-}
-
-export async function clearProfileCache() {
-  const database = await initDB();
-  await database.clear("profiles");
-}
-
-/**
- * Queue audit log for sync when internet is restored
- */
+// --- AUDIT LOG QUEUEING ---
 export async function queueAuditLog(auditLog: any) {
   const database = await initDB();
   await database.put("auditLogs", {
@@ -161,24 +124,7 @@ export async function markAuditLogSynced(auditLogId: string) {
   }
 }
 
-export async function clearAuditLogs() {
-  const database = await initDB();
-  await database.clear("auditLogs");
-}
-
+// --- UTILS ---
 export function isOnline() {
   return navigator.onLine;
-}
-
-export function onOnlineStatusChange(callback: (online: boolean) => void) {
-  const onlineHandler = () => callback(true);
-  const offlineHandler = () => callback(false);
-
-  window.addEventListener("online", onlineHandler);
-  window.addEventListener("offline", offlineHandler);
-
-  return () => {
-    window.removeEventListener("online", onlineHandler);
-    window.removeEventListener("offline", offlineHandler);
-  };
 }
