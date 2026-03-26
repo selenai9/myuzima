@@ -20,14 +20,17 @@ const createResponderSchema = z.object({
   pin: z.string().length(4, "PIN must be 4 digits"),
 });
 
+// Zod schema to validate incoming query parameters for the audit log
 const auditLogFilterSchema = z.object({
   responderId: z.string().optional(),
   patientId: z.string().optional(),
   accessMethod: z.enum(["QR_SCAN", "USSD", "OFFLINE_CACHE"]).optional(),
-  startDate: z.string().datetime().optional(),
-  endDate: z.string().datetime().optional(),
-  limit: z.number().int().min(1).max(100).default(50),
-  offset: z.number().int().min(0).default(0),
+  // Coerce string dates into Date objects automatically
+  startDate: z.preprocess((arg) => (typeof arg === "string" ? new Date(arg) : arg), z.date().optional()),
+  endDate: z.preprocess((arg) => (typeof arg === "string" ? new Date(arg) : arg), z.date().optional()),
+  // Handle string numbers from query params
+  limit: z.preprocess((val) => Number(val), z.number().int().min(1).max(100).default(50)),
+  offset: z.preprocess((val) => Number(val), z.number().int().min(0).default(0)),
 });
 
 /**
@@ -41,10 +44,8 @@ router.post("/responder", authMiddleware, adminAuthMiddleware, async (req: Reque
     const db = await getDb();
     if (!db) throw new Error("Database not available");
 
-    // Hash PIN
     const pinHash = await bcryptjs.hash(data.pin, 10);
 
-    // Create responder
     await db.insert(responders).values({
       badgeId: data.badgeId,
       name: data.name,
@@ -102,38 +103,35 @@ router.delete("/responder/:id", authMiddleware, adminAuthMiddleware, async (req:
  */
 router.get("/audit-logs", authMiddleware, adminAuthMiddleware, async (req: Request, res: Response) => {
   try {
-    const filters = auditLogFilterSchema.parse(req.query);
-
-    // Parse date filters if provided
-    const dateFilters: any = {};
-    if (filters.startDate) {
-      dateFilters.startDate = new Date(filters.startDate);
-    }
-    if (filters.endDate) {
-      dateFilters.endDate = new Date(filters.endDate);
-    }
+    // 1. Validate and parse the query parameters
+    const parsed = auditLogFilterSchema.parse(req.query);
 
     const auditFilters = {
-      responderId: filters.responderId,
-      patientId: filters.patientId,
-      accessMethod: filters.accessMethod as any,
-      ...dateFilters,
+      responderId: parsed.responderId,
+      patientId: parsed.patientId,
+      accessMethod: parsed.accessMethod,
+      startDate: parsed.startDate,
+      endDate: parsed.endDate,
     };
 
-    // Get audit logs
-    const logs = await getAllAuditLogs(filters.limit, filters.offset, auditFilters);
-
-    // Get total count
-    const total = await countAuditLogs(auditFilters);
+    /**
+     * GLUE CODE: Running fetch and count in parallel.
+     * This reduces the total API response time by executing both SQL queries simultaneously.
+     */
+    const [logs, total] = await Promise.all([
+      getAllAuditLogs(parsed.limit, parsed.offset, auditFilters),
+      countAuditLogs(auditFilters)
+    ]);
 
     res.json({
       success: true,
       logs,
       pagination: {
-        limit: filters.limit,
-        offset: filters.offset,
+        limit: parsed.limit,
+        offset: parsed.offset,
         total,
-        hasMore: filters.offset + filters.limit < total,
+        totalPages: Math.ceil(total / parsed.limit),
+        hasMore: parsed.offset + parsed.limit < total,
       },
     });
   } catch (error) {
@@ -150,10 +148,7 @@ router.get("/audit-logs", authMiddleware, adminAuthMiddleware, async (req: Reque
  */
 router.get("/stats", authMiddleware, adminAuthMiddleware, async (req: Request, res: Response) => {
   try {
-    const db = await getDb();
-    if (!db) throw new Error("Database not available");
-
-    // Get total audit logs (total scans)
+    // Using the optimized countAuditLogs without filters to get total system-wide scans
     const totalScans = await countAuditLogs();
 
     res.json({
