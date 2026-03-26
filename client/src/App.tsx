@@ -11,6 +11,10 @@ import ResponderScan from "./pages/ResponderScan";
 import AdminDashboard from "./pages/AdminDashboard";
 import "./i18n/config";
 
+// 1. Import new hook and loader
+import { useAuth } from "./hooks/useAuth"; 
+import { SecureLoader } from "./components/SecureLoader";
+
 function Router() {
   return (
     <Switch>
@@ -20,19 +24,28 @@ function Router() {
       <Route path={"/responder/scan"} component={ResponderScan} />
       <Route path={"/admin"} component={AdminDashboard} />
       <Route path={"/404"} component={NotFound} />
-      {/* Final fallback route */}
       <Route component={NotFound} />
     </Switch>
   );
 }
 
 function App() {
+  // 2. Start the security check at the very top level
+  const { loading } = useAuth();
+
   return (
     <ErrorBoundary>
       <ThemeProvider defaultTheme="light">
         <TooltipProvider>
           <Toaster />
-          <Router />
+          
+          {/* 3. The Security Guard logic */}
+          {loading ? (
+            <SecureLoader />
+          ) : (
+            <Router />
+          )}
+          
         </TooltipProvider>
       </ThemeProvider>
     </ErrorBoundary>
