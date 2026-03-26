@@ -1,10 +1,11 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, boolean, index } from "drizzle-orm/mysql-core"; // Added 'index'
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, boolean, index } from "drizzle-orm/mysql-core";
 import { relations } from "drizzle-orm";
+import { crypto } from "node:crypto";
 
 /**
- * Core user table backing auth flow.
+ * Users table: Backing authentication and role management.
  */
-export const auditLogs = mysqlTable("audit_logs", {
+export const users = mysqlTable("users", {
   id: int("id").autoincrement().primaryKey(),
   openId: varchar("openId", { length: 64 }).notNull().unique(),
   name: text("name"),
@@ -20,7 +21,7 @@ export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
 /**
- * Patient table: Core patient identity with phone-based registration
+ * Patients table: Core identity with phone-based registration.
  */
 export const patients = mysqlTable("patients", {
   id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -36,7 +37,8 @@ export type Patient = typeof patients.$inferSelect;
 export type InsertPatient = typeof patients.$inferInsert;
 
 /**
- * EmergencyProfile table: Encrypted medical data for each patient
+ * EmergencyProfile table: Encrypted medical data for each patient.
+ * Optimization: Index added on patientId for rapid retrieval during emergency scans.
  */
 export const emergencyProfiles = mysqlTable("emergencyProfiles", {
   id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -48,13 +50,15 @@ export const emergencyProfiles = mysqlTable("emergencyProfiles", {
   contacts: text("contacts").notNull(), 
   isActive: boolean("isActive").default(true).notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  patientIdProfileIdx: index("patient_id_profile_idx").on(table.patientId),
+}));
 
 export type EmergencyProfile = typeof emergencyProfiles.$inferSelect;
 export type InsertEmergencyProfile = typeof emergencyProfiles.$inferInsert;
 
 /**
- * QRCode table: Encrypted reference tokens for QR scanning
+ * QRCode table: Encrypted reference tokens for QR scanning.
  */
 export const qrCodes = mysqlTable("qrCodes", {
   id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -65,7 +69,7 @@ export const qrCodes = mysqlTable("qrCodes", {
 });
 
 /**
- * Facility table: Health facilities where responders work
+ * Facility table: Health facilities where responders are stationed.
  */
 export const facilities = mysqlTable("facilities", {
   id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -75,7 +79,7 @@ export const facilities = mysqlTable("facilities", {
 });
 
 /**
- * Responder table: Emergency responders (EMT, Doctor, Nurse)
+ * Responder table: Authorized emergency responders (EMT, Doctor, Nurse).
  */
 export const responders = mysqlTable("responders", {
   id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -90,8 +94,8 @@ export const responders = mysqlTable("responders", {
 });
 
 /**
- * AuditLog table: Immutable record of all profile accesses
- * Optimization: Indexes added on filtered columns for high-speed count and search queries.
+ * AuditLog table: Immutable record of profile access events.
+ * Optimization: Indexes for responder/patient tracking and time-based reporting.
  */
 export const auditLogs = mysqlTable("auditLogs", {
   id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -102,19 +106,17 @@ export const auditLogs = mysqlTable("auditLogs", {
   deviceIp: varchar("deviceIp", { length: 45 }).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => ({
-  // INDEXES: Critical for performance as the audit log grows.
-  // These allow the database to search/count without scanning every row.
-  patientIdx: index("patient_idx").on(table.patientId),
-  responderIdx: index("responder_idx").on(table.responderId),
-  timestampIdx: index("timestamp_idx").on(table.timestamp),
-  methodIdx: index("method_idx").on(table.accessMethod), // Useful for filtering by USSD/QR
+  patientIdx: index("audit_patient_idx").on(table.patientId),
+  responderIdx: index("audit_responder_idx").on(table.responderId),
+  timestampIdx: index("audit_timestamp_idx").on(table.timestamp),
+  methodIdx: index("audit_method_idx").on(table.accessMethod),
 }));
 
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type InsertAuditLog = typeof auditLogs.$inferInsert;
 
 /**
- * OTPAttempt table: Track OTP verification attempts for rate limiting
+ * OTPAttempt table: Rate limiting and security lockout tracking.
  */
 export const otpAttempts = mysqlTable("otpAttempts", {
   id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -124,12 +126,12 @@ export const otpAttempts = mysqlTable("otpAttempts", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({
-  // Optimization: Fast lookup by phone number for the lockout check.
-  phoneIdx: index("phone_attempts_idx").on(table.phone),
+  phoneAttemptsIdx: index("phone_attempts_idx").on(table.phone),
 }));
 
 /**
- * OTP table: Store generated OTPs with expiration
+ * OTP table: Short-lived verification codes.
+ * Optimization: Compound index for verifying unused codes by phone number.
  */
 export const otps = mysqlTable("otps", {
   id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -139,13 +141,14 @@ export const otps = mysqlTable("otps", {
   used: boolean("used").default(false).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => ({
-  // Optimization: Speeds up finding the valid OTP record during verification.
   otpLookupIdx: index("otp_lookup_idx").on(table.phone, table.code, table.used),
 }));
 
 /**
  * Relations for Drizzle ORM
  */
+export const usersRelations = relations(users, ({}) => ({}));
+
 export const patientRelations = relations(patients, ({ one }) => ({
   emergencyProfile: one(emergencyProfiles, {
     fields: [patients.id],
