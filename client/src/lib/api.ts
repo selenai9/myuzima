@@ -1,5 +1,5 @@
 import axios, { AxiosInstance, AxiosError } from "axios";
-// NEW: Import our IndexedDB helpers to persist tokens for offline use
+// Keep IndexedDB for offline decryption support (Service Worker)
 import { storeAuthToken, getAuthToken, clearProfileCache } from "./idb";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
@@ -14,8 +14,6 @@ interface TokenPayload {
 
 class APIClient {
   private client: AxiosInstance;
-  private accessToken: string | null = null;
-  private refreshToken: string | null = null;
 
   constructor() {
     this.client = axios.create({
@@ -23,37 +21,34 @@ class APIClient {
       headers: {
         "Content-Type": "application/json",
       },
+      // C-03: Required to send/receive HttpOnly cookies automatically
+      withCredentials: true,
     });
 
-    // Add request interceptor to include auth token
-    this.client.interceptors.request.use(
-      (config) => {
-        if (this.accessToken) {
-          config.headers.Authorization = `Bearer ${this.accessToken}`;
-        }
-        return config;
-      },
-      (error) => Promise.reject(error)
-    );
-
-    // Add response interceptor to handle token refresh
+    // Response interceptor for token refresh and IDB synchronization
     this.client.interceptors.response.use(
-      (response) => response,
+      (response) => {
+        // If the server returns a new token in the body (as a fallback or for SW), store it in IDB
+        if (response.data.accessToken) {
+          storeAuthToken(response.data.accessToken);
+        }
+        return response;
+      },
       async (error: AxiosError) => {
         const originalRequest = error.config as any;
 
-        if (error.response?.status === 401 && this.refreshToken && !originalRequest._retry) {
+        // If 401, attempt to refresh the cookie automatically
+        if (error.response?.status === 401 && !originalRequest._retry) {
           originalRequest._retry = true;
 
           try {
-            const response = await axios.post(`${API_BASE_URL}/auth/refresh`, {
-              refreshToken: this.refreshToken,
-            });
-
-            // Persist the new token to IndexedDB after a successful refresh
-            await this.setTokens(response.data.accessToken, this.refreshToken);
+            // The refresh cookie is sent automatically by the browser
+            const response = await axios.post(`${API_BASE_URL}/auth/refresh`, {}, { withCredentials: true });
             
-            originalRequest.headers.Authorization = `Bearer ${this.accessToken}`;
+            if (response.data.accessToken) {
+              await storeAuthToken(response.data.accessToken);
+            }
+            
             return this.client(originalRequest);
           } catch (refreshError) {
             await this.logout();
@@ -64,30 +59,6 @@ class APIClient {
         return Promise.reject(error);
       }
     );
-
-    // Initial load of tokens from storage
-    this.loadTokens();
-  }
-
-  private async setTokens(accessToken: string, refreshToken: string) {
-    this.accessToken = accessToken;
-    this.refreshToken = refreshToken;
-    await storeAuthToken(accessToken);
-    localStorage.setItem("refreshToken", refreshToken);
-    localStorage.setItem("accessToken", accessToken); // Added for loadTokens consistency
-  }
-
-  private async loadTokens() {
-    this.accessToken = await getAuthToken() || localStorage.getItem("accessToken");
-    this.refreshToken = localStorage.getItem("refreshToken");
-  }
-
-  private async clearTokens() {
-    this.accessToken = null;
-    this.refreshToken = null;
-    await storeAuthToken(""); 
-    localStorage.removeItem("refreshToken");
-    localStorage.removeItem("accessToken");
   }
 
   /**
@@ -100,18 +71,18 @@ class APIClient {
 
   /**
    * Patient OTP Verification
+   * On success, server sets HttpOnly cookies
    */
   async patientVerifyOTP(phone: string, code: string) {
     const response = await this.client.post("/auth/verify-otp", { phone, code });
-    if (response.data.accessToken && response.data.refreshToken) {
-      await this.setTokens(response.data.accessToken, response.data.refreshToken);
+    if (response.data.accessToken) {
+      await storeAuthToken(response.data.accessToken);
     }
     return response.data;
   }
 
   /**
-   * NEW: Record Patient Consent (H-04 Compliance)
-   * This is called in PatientRegister.tsx after OTP success.
+   * H-04: Record Patient Consent
    */
   async recordConsent() {
     const response = await this.client.post("/patient/consent");
@@ -123,8 +94,8 @@ class APIClient {
    */
   async responderLogin(badgeId: string, pin: string) {
     const response = await this.client.post("/auth/responder/login", { badgeId, pin });
-    if (response.data.accessToken && response.data.refreshToken) {
-      await this.setTokens(response.data.accessToken, response.data.refreshToken);
+    if (response.data.accessToken) {
+      await storeAuthToken(response.data.accessToken);
     }
     return response.data;
   }
@@ -154,7 +125,7 @@ class APIClient {
   }
 
   /**
-   * Download QR Card as PDF
+   * Download QR Card
    */
   async downloadQRCard() {
     const response = await this.client.get("/patient/qr", {
@@ -221,34 +192,36 @@ class APIClient {
 
   /**
    * Logout
+   * Clears cookies on server and wipes local medical cache
    */
   async logout() {
-    await this.clearTokens();
-    await clearProfileCache(); 
+    try {
+      await this.client.post("/auth/logout");
+    } finally {
+      await storeAuthToken(""); // Clear IDB
+      await clearProfileCache(); // Security: Wipe medical cache
+    }
   }
 
   /**
-   * Get current auth state via JWT decoding
+   * Check Auth Status
+   * Since cookies are invisible to JS, we call a 'me' endpoint to see who we are
    */
-  getAuthState() {
-    if (!this.accessToken) return null;
-
+  async getAuthState(): Promise<TokenPayload | null> {
     try {
-      const parts = this.accessToken.split(".");
-      if (parts.length !== 3) return null;
-
-      const payload = JSON.parse(atob(parts[1]));
-      return payload as TokenPayload;
+      const response = await this.client.get("/auth/me");
+      return response.data.user;
     } catch {
       return null;
     }
   }
 
   /**
-   * Check if authenticated
+   * Simple check if session is likely active based on IDB
    */
-  isAuthenticated() {
-    return !!this.accessToken;
+  async isAuthenticated() {
+    const token = await getAuthToken();
+    return !!token;
   }
 }
 
