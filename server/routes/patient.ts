@@ -2,9 +2,9 @@ import { Router, Request, Response } from "express";
 import { z } from "zod";
 import { getDb } from "../db";
 import { emergencyProfiles, patients } from "../../drizzle/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { encryptData, decryptJSON } from "../services/crypto";
-import { generateQRCodeDataUrl, generateEmergencyCardPDF, storeQRCode, regenerateQRCode } from "../services/qr";
+import { generateEmergencyCardPDF, storeQRCode, regenerateQRCode } from "../services/qr";
 import { authMiddleware, patientAuthMiddleware, JWTPayload } from "../middleware/auth";
 
 const router = Router();
@@ -38,202 +38,134 @@ const emergencyProfileSchema = z.object({
 });
 
 /**
+ * POST /patient/consent
+ * Required before profile creation (Compliance with Rwanda Law 058/2021)
+ */
+router.post("/consent", authMiddleware, patientAuthMiddleware, async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user as JWTPayload;
+    const db = await getDb();
+
+    await db
+      .update(patients)
+      .set({
+        consentGiven: true,
+        consentTimestamp: new Date(),
+      })
+      .where(eq(patients.id, user.id));
+
+    res.json({ success: true, message: "Consent recorded" });
+  } catch (error) {
+    res.status(400).json({ error: "Failed to record consent" });
+  }
+});
+
+/**
  * POST /patient/profile
- * Create emergency profile for authenticated patient
+ * Create profile ONLY if consent is already given
  */
 router.post("/profile", authMiddleware, patientAuthMiddleware, async (req: Request, res: Response) => {
   try {
     const user = (req as any).user as JWTPayload;
     const profileData = emergencyProfileSchema.parse(req.body);
-
     const db = await getDb();
-    if (!db) throw new Error("Database not available");
 
-    // Encrypt sensitive fields
-    const encryptedBloodType = encryptData(profileData.bloodType);
-    const encryptedAllergies = encryptData(profileData.allergies);
-    const encryptedMedications = encryptData(profileData.medications);
-    const encryptedConditions = encryptData(profileData.conditions);
-    const encryptedContacts = encryptData(profileData.contacts);
+    // 1. Verify Consent (Server-side Enforcement)
+    const patientRecord = await db.select().from(patients).where(eq(patients.id, user.id)).limit(1);
+    if (!patientRecord[0]?.consentGiven) {
+      return res.status(403).json({ error: "Legal consent required before storing medical data." });
+    }
 
-    // Create emergency profile
-    const profile = await db
-      .insert(emergencyProfiles)
-      .values({
+    // 2. Use a Transaction for Atomic Updates (Consistency)
+    const result = await db.transaction(async (tx) => {
+      // Encrypt sensitive fields
+      const values = {
         patientId: user.id,
-        bloodType: encryptedBloodType,
-        allergies: encryptedAllergies,
-        medications: encryptedMedications,
-        conditions: encryptedConditions,
-        contacts: encryptedContacts,
-      })
-      .$returningId();
+        bloodType: encryptData(profileData.bloodType),
+        allergies: encryptData(profileData.allergies),
+        medications: encryptData(profileData.medications),
+        conditions: encryptData(profileData.conditions),
+        contacts: encryptData(profileData.contacts),
+      };
 
-    const profileId = profile[0]?.id;
-    if (!profileId) throw new Error("Failed to create profile");
+      const [newProfile] = await tx.insert(emergencyProfiles).values(values).$returningId();
+      
+      // Generate & Link QR Token within the same transaction
+      const qrToken = await regenerateQRCode(newProfile.id);
+      await storeQRCode(newProfile.id, qrToken);
 
-    // Generate QR code
-    const qrToken = await regenerateQRCode(profileId);
-    await storeQRCode(profileId, qrToken);
-
-    res.json({
-      success: true,
-      profile: {
-        id: profileId,
-        patientId: user.id,
-        bloodType: profileData.bloodType,
-        createdAt: new Date(),
-      },
+      return { id: newProfile.id, qrToken };
     });
+
+    res.json({ success: true, profileId: result.id });
   } catch (error) {
-    console.error("[Patient] Profile creation error:", error);
-    res.status(400).json({
-      error: error instanceof Error ? error.message : "Profile creation failed",
-    });
+    console.error("[Patient] Profile Creation Error:", error);
+    res.status(500).json({ error: "Transaction failed: Profile not created" });
   }
 });
 
 /**
  * PUT /patient/profile
- * Update emergency profile
+ * Update and ensure QR stays in sync
  */
 router.put("/profile", authMiddleware, patientAuthMiddleware, async (req: Request, res: Response) => {
   try {
     const user = (req as any).user as JWTPayload;
     const profileData = emergencyProfileSchema.parse(req.body);
-
     const db = await getDb();
-    if (!db) throw new Error("Database not available");
 
-    // Encrypt sensitive fields
-    const encryptedBloodType = encryptData(profileData.bloodType);
-    const encryptedAllergies = encryptData(profileData.allergies);
-    const encryptedMedications = encryptData(profileData.medications);
-    const encryptedConditions = encryptData(profileData.conditions);
-    const encryptedContacts = encryptData(profileData.contacts);
+    await db.transaction(async (tx) => {
+      // Update the data
+      await tx.update(emergencyProfiles)
+        .set({
+          bloodType: encryptData(profileData.bloodType),
+          allergies: encryptData(profileData.allergies),
+          medications: encryptData(profileData.medications),
+          conditions: encryptData(profileData.conditions),
+          contacts: encryptData(profileData.contacts),
+          updatedAt: new Date(),
+        })
+        .where(eq(emergencyProfiles.patientId, user.id));
 
-    // Update profile
-    await db
-      .update(emergencyProfiles)
-      .set({
-        bloodType: encryptedBloodType,
-        allergies: encryptedAllergies,
-        medications: encryptedMedications,
-        conditions: encryptedConditions,
-        contacts: encryptedContacts,
-        updatedAt: new Date(),
-      })
-      .where(eq(emergencyProfiles.patientId, user.id));
-
-    // Regenerate QR code
-    const profile = await db
-      .select()
-      .from(emergencyProfiles)
-      .where(eq(emergencyProfiles.patientId, user.id))
-      .limit(1);
-
-    if (profile.length > 0) {
-      await regenerateQRCode(profile[0].id);
-    }
-
-    res.json({
-      success: true,
-      message: "Profile updated successfully",
-      bloodType: profileData.bloodType,
+      // Fetch ID to ensure QR reflects latest state
+      const [profile] = await tx.select().from(emergencyProfiles).where(eq(emergencyProfiles.patientId, user.id)).limit(1);
+      
+      if (profile) {
+        await regenerateQRCode(profile.id);
+      }
     });
+
+    res.json({ success: true, message: "Profile and QR updated" });
   } catch (error) {
-    console.error("[Patient] Profile update error:", error);
-    res.status(400).json({
-      error: error instanceof Error ? error.message : "Profile update failed",
-    });
+    res.status(400).json({ error: "Update failed" });
   }
 });
 
 /**
  * GET /patient/profile
- * Retrieve decrypted emergency profile
  */
 router.get("/profile", authMiddleware, patientAuthMiddleware, async (req: Request, res: Response) => {
   try {
     const user = (req as any).user as JWTPayload;
-
     const db = await getDb();
-    if (!db) throw new Error("Database not available");
 
-    const profile = await db
-      .select()
-      .from(emergencyProfiles)
-      .where(eq(emergencyProfiles.patientId, user.id))
-      .limit(1);
+    const [p] = await db.select().from(emergencyProfiles).where(eq(emergencyProfiles.patientId, user.id)).limit(1);
 
-    if (profile.length === 0) {
-      return res.status(404).json({ error: "Profile not found" });
-    }
-
-    const p = profile[0];
-
-    // Decrypt sensitive fields
-    const bloodType = decryptJSON<string>(p.bloodType);
-    const allergies = decryptJSON<any[]>(p.allergies);
-    const medications = decryptJSON<any[]>(p.medications);
-    const conditions = decryptJSON<string[]>(p.conditions);
-    const contacts = decryptJSON<any[]>(p.contacts);
+    if (!p) return res.status(404).json({ error: "No profile found" });
 
     res.json({
       success: true,
       profile: {
-        id: p.id,
-        patientId: p.patientId,
-        bloodType,
-        allergies,
-        medications,
-        conditions,
-        contacts,
-        isActive: p.isActive,
-        updatedAt: p.updatedAt,
+        ...p,
+        bloodType: decryptJSON<string>(p.bloodType),
+        allergies: decryptJSON<any[]>(p.allergies),
+        medications: decryptJSON<any[]>(p.medications),
+        conditions: decryptJSON<string[]>(p.conditions),
+        contacts: decryptJSON<any[]>(p.contacts),
       },
     });
   } catch (error) {
-    console.error("[Patient] Profile retrieval error:", error);
-    res.status(400).json({
-      error: error instanceof Error ? error.message : "Profile retrieval failed",
-    });
-  }
-});
-
-/**
- * GET /patient/qr
- * Download QR card as PDF
- */
-router.get("/qr", authMiddleware, patientAuthMiddleware, async (req: Request, res: Response) => {
-  try {
-    const user = (req as any).user as JWTPayload;
-
-    const db = await getDb();
-    if (!db) throw new Error("Database not available");
-
-    // Get patient's emergency profile
-    const profile = await db
-      .select()
-      .from(emergencyProfiles)
-      .where(eq(emergencyProfiles.patientId, user.id))
-      .limit(1);
-
-    if (profile.length === 0) {
-      return res.status(404).json({ error: "Emergency profile not found. Please create one first." });
-    }
-
-    // Generate PDF
-    const pdfBuffer = await generateEmergencyCardPDF(profile[0].id, user.phone || "");
-
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `attachment; filename="myuzima-emergency-card-${Date.now()}.pdf"`);
-    res.send(pdfBuffer);
-  } catch (error) {
-    console.error("[Patient] QR PDF generation error:", error);
-    res.status(400).json({
-      error: error instanceof Error ? error.message : "PDF generation failed",
-    });
+    res.status(500).json({ error: "Retrieval failed" });
   }
 });
 
