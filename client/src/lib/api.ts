@@ -35,18 +35,21 @@ class APIClient {
       async (error: AxiosError) => {
         const originalRequest = error.config as any;
 
+        // If error is 401 Unauthorized and we haven't tried refreshing yet
         if (error.response?.status === 401 && !originalRequest._retry) {
           originalRequest._retry = true;
 
           try {
-            // The refresh token is an HttpOnly cookie; we just POST to the endpoint.
-            // If the cookie is valid the server rotates the access_token cookie silently.
-            await axios.post(`${API_BASE_URL}/auth/refresh`, {}, { withCredentials: true });
+            // FIX: Use this.client instead of global axios to ensure the /api proxy is used
+            await this.client.post("/auth/refresh"); 
+            
+            // Retry the original request that failed
             return this.client(originalRequest);
-          } catch {
+          } catch (refreshError) {
             // Refresh failed — clear the IDB token for the service worker and redirect
             await clearAuthToken();
             window.location.href = "/";
+            return Promise.reject(refreshError);
           }
         }
 
@@ -69,11 +72,6 @@ class APIClient {
   async patientVerifyOTP(phone: string, code: string) {
     const response = await this.client.post("/auth/verify-otp", { phone, code });
     // C-06: Store a token indicator in IDB so the service worker can authenticate
-    // background sync requests. We use a placeholder since the real token is HttpOnly.
-    // The SW will send credentials:include which carries the cookie automatically;
-    // the IDB value is a fallback Authorization header for non-browser clients.
-    // Note: this is NOT the actual JWT — it's just a signal the session is active.
-    // In a future iteration the server can return a limited-scope SW token here.
     await storeAuthToken("cookie-session-active");
     return response.data;
   }
@@ -86,6 +84,7 @@ class APIClient {
     await storeAuthToken("cookie-session-active");
     return response.data;
   }
+
   /**
    * Create Emergency Profile
    */
@@ -111,7 +110,7 @@ class APIClient {
   }
 
   /**
-   * H-04: Record patient consent with server timestamp (Rwanda Law 058/2021)
+   * H-04: Record patient consent (Rwanda Law 058/2021)
    */
   async recordConsent() {
     const response = await this.client.post("/patient/consent");
@@ -209,13 +208,12 @@ class APIClient {
   }
 
   /**
-   * Logout — ask server to clear the HttpOnly cookies
+   * Logout
    */
   async logout() {
     try {
       await this.client.post("/auth/logout");
     } finally {
-      // C-06: Clear IDB token so the service worker stops sending auth headers
       await clearAuthToken();
       window.location.href = "/";
     }
