@@ -1,6 +1,33 @@
 import { mysqlEnum, mysqlTable, text, timestamp, varchar, boolean, index } from "drizzle-orm/mysql-core";
 import { relations } from "drizzle-orm";
-import { crypto } from "node:crypto"; // Standard Node.js crypto
+import { crypto } from "node:crypto";
+
+/**
+ * Facilities table: Medical centers/hospitals
+ */
+export const facilities = mysqlTable("facilities", {
+  id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  name: varchar("name", { length: 255 }).notNull(),
+  location: text("location"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+/**
+ * Responders table: Authorized medical staff (EMTs, Doctors, Nurses)
+ */
+export const responders = mysqlTable("responders", {
+  id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  badgeId: varchar("badgeId", { length: 100 }).notNull().unique(),
+  name: varchar("name", { length: 255 }).notNull(),
+  role: mysqlEnum("role", ["EMT", "DOCTOR", "NURSE"]).notNull(),
+  facilityId: varchar("facilityId", { length: 64 }).notNull(),
+  pinHash: varchar("pinHash", { length: 255 }).notNull(), // Stores bcrypt hash
+  isActive: boolean("isActive").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  badgeIdx: index("badge_id_idx").on(table.badgeId),
+  facilityIdx: index("responder_facility_idx").on(table.facilityId),
+}));
 
 /**
  * Patients table: Core identity.
@@ -59,9 +86,21 @@ export const qrCodes = mysqlTable("qrCodes", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
-/**
- * Relations - Ensures Drizzle "Queries" work (e.g., db.query.patients.findFirst({ with: { auditLogs: true } }))
- */
+// ==========================================
+// RELATIONS
+// ==========================================
+
+export const facilityRelations = relations(facilities, ({ many }) => ({
+  responders: many(responders),
+}));
+
+export const responderRelations = relations(responders, ({ one }) => ({
+  facility: one(facilities, {
+    fields: [responders.facilityId],
+    references: [facilities.id],
+  }),
+}));
+
 export const patientRelations = relations(patients, ({ one, many }) => ({
   emergencyProfile: one(emergencyProfiles, {
     fields: [patients.id],
