@@ -5,19 +5,17 @@ export function SecureLoader() {
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [isTakingLong, setIsTakingLong] = useState(false);
 
-  // This version number can be updated manually as you push new code to GitHub
+  // App version for tracking updates
   const APP_VERSION = "v1.0.4-beta";
 
   useEffect(() => {
-    // 1. Monitor real-time connection status
     const goOffline = () => setIsOffline(true);
     const goOnline = () => setIsOffline(false);
 
     window.addEventListener("offline", goOffline);
     window.addEventListener("online", goOnline);
 
-    // 2. Start a "Slow Connection" timer (5 seconds)
-    // In an emergency, we don't want the user staring at a spinner forever
+    // Timer to notify user if connection is lagging
     const timer = setTimeout(() => {
       setIsTakingLong(true);
     }, 5000);
@@ -30,60 +28,90 @@ export function SecureLoader() {
   }, []);
 
   return (
-    <div className="flex h-screen w-full flex-col items-center justify-center bg-slate-50 p-6">
-      <div className="relative flex flex-col items-center gap-6">
+    <div className="flex h-screen w-full flex-col items-center justify-center bg-[var(--color-healthcare-bg)] p-6">
+      <div className="relative flex flex-col items-center gap-8 page-enter">
         
-        {/* VISUAL ICON LOGIC */}
+        {/* ── Logo Section ────────────────────── */}
+        <div className="flex flex-col items-center gap-3 mb-2">
+          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white shadow-sm border border-border/40 p-2">
+            <img 
+              src="/logo.svg" 
+              alt="MyUZIMA Logo" 
+              className="h-full w-full object-contain" 
+            />
+          </div>
+          <span className="text-xl font-bold tracking-tight text-[var(--color-healthcare-text)]">
+            MyUZIMA
+          </span>
+        </div>
+
+        {/* ── Status Icon ─────────────────────── */}
         <div className="relative">
           {isOffline ? (
-            <div className="bg-orange-100 p-4 rounded-full">
-              <WifiOff className="h-12 w-12 text-orange-600 animate-pulse" />
+            <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-amber-50 border border-amber-200">
+              <WifiOff className="h-10 w-10 text-amber-500 animate-pulse" />
             </div>
           ) : isTakingLong ? (
-            <div className="bg-yellow-100 p-4 rounded-full">
-              <AlertCircle className="h-12 w-12 text-yellow-600" />
+            <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-amber-50 border border-amber-200">
+              <AlertCircle className="h-10 w-10 text-amber-500" />
             </div>
           ) : (
-            <>
-              <ShieldCheck className="h-16 w-16 text-red-600" />
-              <Loader2 className="absolute -inset-2 h-20 w-20 animate-spin text-red-200" />
-            </>
+            <div className="relative flex h-20 w-20 items-center justify-center">
+              {/* Soft background pulse */}
+              <div className="absolute inset-0 rounded-2xl bg-[var(--color-healthcare-teal)]/10 animate-pulse" />
+              <ShieldCheck className="relative h-10 w-10 text-[var(--color-healthcare-teal)]" />
+              {/* Outer spinning ring */}
+              <Loader2 className="absolute -inset-3 h-[104px] w-[104px] animate-spin text-[var(--color-healthcare-teal)]/20" />
+            </div>
           )}
         </div>
 
-        {/* TEXT STATUS LOGIC */}
+        {/* ── Status Text ─────────────────────── */}
         <div className="text-center max-w-xs">
-          <h2 className="text-lg font-semibold text-slate-900">
-            {isOffline ? "Offline Mode" : "MyUZIMA Secure Access"}
+          <h2 className="text-lg font-bold text-[var(--color-healthcare-text)] mb-1">
+            {isOffline ? "Offline Mode" : "Secure Access"}
           </h2>
-          <p className="text-sm text-slate-500 mt-1">
-            {isOffline 
-              ? "No internet connection. Accessing local emergency cache..." 
-              : isTakingLong 
-                ? "Connection is slow. Still trying to verify..." 
-                : "Verifying emergency credentials..."}
+          <p className="text-sm text-[var(--color-healthcare-muted)] leading-relaxed">
+            {isOffline
+              ? "No internet connection. Accessing local emergency cache..."
+              : isTakingLong
+              ? "Connection is slow. Still verifying..."
+              : "Verifying emergency credentials..."}
           </p>
         </div>
 
-        {/* RETRY BUTTON (Only shows if there's a problem) */}
+        {/* ── Visual Progress Bar ──────────────── */}
+        {!isOffline && !isTakingLong && (
+          <div className="w-48 h-1 rounded-full bg-[var(--color-healthcare-teal)]/10 overflow-hidden">
+            <div 
+              className="h-full bg-[var(--color-healthcare-teal)] rounded-full animate-pulse transition-all duration-700" 
+              style={{ width: "65%" }} 
+            />
+          </div>
+        )}
+
+        {/* ── Action Button ───────────────────── */}
         {(isOffline || isTakingLong) && (
-          <button 
+          <button
             onClick={() => window.location.reload()}
-            className="mt-2 px-4 py-2 text-xs font-bold uppercase tracking-wider bg-white border border-slate-200 rounded shadow-sm hover:bg-slate-50 transition-colors"
+            className="btn-healthcare text-xs px-6 py-2.5"
           >
             Retry Connection
           </button>
         )}
       </div>
-      
-      {/* FOOTER: Privacy Note + Version Number */}
-      <div className="absolute bottom-8 flex flex-col items-center gap-2">
-        <div className="text-[10px] uppercase tracking-widest text-slate-400 font-medium text-center">
-          {isOffline ? "Secure Offline Session" : "End-to-End Encrypted Session"}
+
+      {/* ── Footer Branding ─────────────────── */}
+      <div className="absolute bottom-8 flex flex-col items-center gap-3">
+        <div className="flex items-center gap-2">
+          <div className={`h-2 w-2 rounded-full ${isOffline ? "bg-amber-400" : "bg-[var(--color-healthcare-teal)]"}`} />
+          <span className="text-[10px] uppercase tracking-widest text-[var(--color-healthcare-muted)] font-semibold">
+            {isOffline ? "Secure Offline Session" : "End-to-End Encrypted Session"}
+          </span>
         </div>
-        <div className="text-[9px] font-mono text-slate-300 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+        <span className="text-[9px] font-mono text-[var(--color-healthcare-muted)]/60 bg-white/50 px-3 py-1 rounded-full border border-border/50">
           {APP_VERSION}
-        </div>
+        </span>
       </div>
     </div>
   );
