@@ -9,20 +9,29 @@ import PatientRegister from "./pages/PatientRegister";
 import PatientProfile from "./pages/PatientProfile";
 import ResponderScan from "./pages/ResponderScan";
 import AdminDashboard from "./pages/AdminDashboard";
+import { ComponentType } from "react";
 import "./i18n/config";
 
 // 1. Import new hook and loader
-import { useAuth } from "./hooks/useAuth"; 
+import { useAuth } from "./hooks/useAuth";
 import { SecureLoader } from "./components/SecureLoader";
 
-function Router() {
+function ProtectedRoute({ component: Component, isAuthenticated, ...rest }: { component: ComponentType; isAuthenticated: boolean; path: string }) {
+  return (
+    <Route {...rest}>
+      {isAuthenticated ? <Component /> : <Home />}
+    </Route>
+  );
+}
+
+function Router({ isAuthenticated }: { isAuthenticated: boolean }) {
   return (
     <Switch>
       <Route path={"/"} component={Home} />
       <Route path={"/patient/register"} component={PatientRegister} />
-      <Route path={"/patient/profile"} component={PatientProfile} />
-      <Route path={"/responder/scan"} component={ResponderScan} />
-      <Route path={"/admin"} component={AdminDashboard} />
+      <ProtectedRoute path={"/patient/profile"} component={PatientProfile} isAuthenticated={isAuthenticated} />
+      <ProtectedRoute path={"/responder/scan"} component={ResponderScan} isAuthenticated={isAuthenticated} />
+      <ProtectedRoute path={"/admin"} component={AdminDashboard} isAuthenticated={isAuthenticated} />
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />
     </Switch>
@@ -31,7 +40,7 @@ function Router() {
 
 function App() {
   // 2. Start the security check at the very top level
-  const { loading } = useAuth();
+  const { loading, isAuthenticated } = useAuth();
 
   return (
     <ErrorBoundary>
@@ -43,7 +52,7 @@ function App() {
           {loading ? (
             <SecureLoader />
           ) : (
-            <Router />
+            <Router isAuthenticated={isAuthenticated} />
           )}
           
         </TooltipProvider>
