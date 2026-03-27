@@ -1,6 +1,6 @@
 import { mysqlEnum, mysqlTable, text, timestamp, varchar, boolean, index } from "drizzle-orm/mysql-core";
 import { relations } from "drizzle-orm";
-import crypto from "node:crypto";
+import * as crypto from "node:crypto";
 
 /**
  * Facilities table: Medical centers/hospitals
