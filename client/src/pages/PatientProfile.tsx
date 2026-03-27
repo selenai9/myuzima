@@ -34,12 +34,14 @@ export default function PatientProfile() {
   const [error, setError] = useState("");
   const [profileExists, setProfileExists] = useState(false);
 
+  // Profile Data State
   const [bloodType, setBloodType] = useState("O+");
   const [allergies, setAllergies] = useState<Allergy[]>([]);
   const [medications, setMedications] = useState<Medication[]>([]);
   const [conditions, setConditions] = useState<string[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
 
+  // Input Field States
   const [newAllergy, setNewAllergy] = useState({ name: "", severity: "mild" as const });
   const [newMedication, setNewMedication] = useState({ name: "", dosage: "", frequency: "" });
   const [newCondition, setNewCondition] = useState("");
@@ -61,19 +63,16 @@ export default function PatientProfile() {
         setContacts(response.profile.contacts || []);
       }
     } catch (err) {
-      // Profile doesn't exist yet, which is fine
+      // Profile doesn't exist yet - user will create a new one
     }
   };
 
+  // --- Handlers ---
   const handleAddAllergy = () => {
     if (newAllergy.name.trim()) {
       setAllergies([...allergies, newAllergy]);
       setNewAllergy({ name: "", severity: "mild" });
     }
-  };
-
-  const handleRemoveAllergy = (index: number) => {
-    setAllergies(allergies.filter((_, i) => i !== index));
   };
 
   const handleAddMedication = () => {
@@ -83,19 +82,11 @@ export default function PatientProfile() {
     }
   };
 
-  const handleRemoveMedication = (index: number) => {
-    setMedications(medications.filter((_, i) => i !== index));
-  };
-
   const handleAddCondition = () => {
     if (newCondition.trim()) {
       setConditions([...conditions, newCondition]);
       setNewCondition("");
     }
-  };
-
-  const handleRemoveCondition = (index: number) => {
-    setConditions(conditions.filter((_, i) => i !== index));
   };
 
   const handleAddContact = () => {
@@ -105,23 +96,13 @@ export default function PatientProfile() {
     }
   };
 
-  const handleRemoveContact = (index: number) => {
-    setContacts(contacts.filter((_, i) => i !== index));
-  };
-
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setLoading(true);
 
     try {
-      const profileData = {
-        bloodType,
-        allergies,
-        medications,
-        conditions,
-        contacts,
-      };
+      const profileData = { bloodType, allergies, medications, conditions, contacts };
 
       if (profileExists) {
         await apiClient.updateEmergencyProfile(profileData);
@@ -154,8 +135,7 @@ export default function PatientProfile() {
       document.body.removeChild(a);
       toast.success(t("common.success"));
     } catch (err) {
-      const message = err instanceof Error ? err.message : t("errors.network_error");
-      toast.error(message);
+      toast.error(err instanceof Error ? err.message : t("errors.network_error"));
     } finally {
       setDownloading(false);
     }
@@ -167,9 +147,7 @@ export default function PatientProfile() {
         <Card>
           <CardHeader className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-t-lg">
             <CardTitle>{t("patient.profile")}</CardTitle>
-            <CardDescription className="text-blue-100">
-              {t("patient.create_profile")}
-            </CardDescription>
+            <CardDescription className="text-blue-100">{t("patient.create_profile")}</CardDescription>
           </CardHeader>
 
           <CardContent className="pt-6">
@@ -187,20 +165,15 @@ export default function PatientProfile() {
                 <select
                   value={bloodType}
                   onChange={(e) => setBloodType(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="A+">A+</option>
-                  <option value="A-">A-</option>
-                  <option value="B+">B+</option>
-                  <option value="B-">B-</option>
-                  <option value="AB+">AB+</option>
-                  <option value="AB-">AB-</option>
-                  <option value="O+">O+</option>
-                  <option value="O-">O-</option>
+                  {["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"].map(type => (
+                    <option key={type} value={type}>{type}</option>
+                  ))}
                 </select>
               </div>
 
-              {/* Allergies */}
+              {/* Allergies Section */}
               <div>
                 <label className="block text-sm font-medium mb-2">{t("patient.allergies")}</label>
                 <div className="space-y-2 mb-3">
@@ -208,42 +181,26 @@ export default function PatientProfile() {
                     <div key={idx} className="flex items-center justify-between bg-red-50 p-2 rounded border border-red-200">
                       <div>
                         <p className="font-medium text-red-900">{allergy.name}</p>
-                        <p className="text-xs text-red-700">{allergy.severity}</p>
+                        <p className="text-xs text-red-700 uppercase">{allergy.severity}</p>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveAllergy(idx)}
-                        className="text-red-600 hover:text-red-800"
-                      >
+                      <button type="button" onClick={() => setAllergies(allergies.filter((_, i) => i !== idx))} className="text-red-600 hover:text-red-800">
                         <Trash2 className="h-4 w-4" />
                       </button>
                     </div>
                   ))}
                 </div>
                 <div className="flex gap-2">
-                  <Input
-                    placeholder={t("patient.allergies")}
-                    value={newAllergy.name}
-                    onChange={(e) => setNewAllergy({ ...newAllergy, name: e.target.value })}
-                  />
-                  <select
-                    value={newAllergy.severity}
-                    onChange={(e) =>
-                      setNewAllergy({ ...newAllergy, severity: e.target.value as any })
-                    }
-                    className="px-3 py-2 border border-gray-300 rounded-md"
-                  >
+                  <Input placeholder={t("patient.allergies")} value={newAllergy.name} onChange={(e) => setNewAllergy({ ...newAllergy, name: e.target.value })} />
+                  <select value={newAllergy.severity} onChange={(e) => setNewAllergy({ ...newAllergy, severity: e.target.value as any })} className="px-3 py-2 border border-gray-300 rounded-md">
                     <option value="mild">Mild</option>
                     <option value="moderate">Moderate</option>
                     <option value="severe">Severe</option>
                   </select>
-                  <Button type="button" onClick={handleAddAllergy} size="sm">
-                    <Plus className="h-4 w-4" />
-                  </Button>
+                  <Button type="button" onClick={handleAddAllergy} size="sm"><Plus className="h-4 w-4" /></Button>
                 </div>
               </div>
 
-              {/* Medications */}
+              {/* Medications Section */}
               <div>
                 <label className="block text-sm font-medium mb-2">{t("patient.medications")}</label>
                 <div className="space-y-2 mb-3">
@@ -251,67 +208,41 @@ export default function PatientProfile() {
                     <div key={idx} className="flex items-center justify-between bg-blue-50 p-2 rounded border border-blue-200">
                       <div>
                         <p className="font-medium text-blue-900">{med.name}</p>
-                        <p className="text-xs text-blue-700">
-                          {med.dosage} {med.frequency && `- ${med.frequency}`}
-                        </p>
+                        <p className="text-xs text-blue-700">{med.dosage} {med.frequency && `- ${med.frequency}`}</p>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveMedication(idx)}
-                        className="text-blue-600 hover:text-blue-800"
-                      >
+                      <button type="button" onClick={() => setMedications(medications.filter((_, i) => i !== idx))} className="text-blue-600 hover:text-blue-800">
                         <Trash2 className="h-4 w-4" />
                       </button>
                     </div>
                   ))}
                 </div>
                 <div className="flex gap-2">
-                  <Input
-                    placeholder={t("patient.medications")}
-                    value={newMedication.name}
-                    onChange={(e) => setNewMedication({ ...newMedication, name: e.target.value })}
-                  />
-                  <Input
-                    placeholder="Dosage"
-                    value={newMedication.dosage}
-                    onChange={(e) => setNewMedication({ ...newMedication, dosage: e.target.value })}
-                  />
-                  <Button type="button" onClick={handleAddMedication} size="sm">
-                    <Plus className="h-4 w-4" />
-                  </Button>
+                  <Input placeholder={t("patient.medications")} value={newMedication.name} onChange={(e) => setNewMedication({ ...newMedication, name: e.target.value })} />
+                  <Input placeholder="Dosage" value={newMedication.dosage} onChange={(e) => setNewMedication({ ...newMedication, dosage: e.target.value })} />
+                  <Button type="button" onClick={handleAddMedication} size="sm"><Plus className="h-4 w-4" /></Button>
                 </div>
               </div>
 
-              {/* Conditions */}
+              {/* Conditions Section (Merged from Snippet 1) */}
               <div>
                 <label className="block text-sm font-medium mb-2">{t("patient.conditions")}</label>
                 <div className="space-y-2 mb-3">
                   {conditions.map((condition, idx) => (
                     <div key={idx} className="flex items-center justify-between bg-yellow-50 p-2 rounded border border-yellow-200">
                       <p className="font-medium text-yellow-900">{condition}</p>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveCondition(idx)}
-                        className="text-yellow-600 hover:text-yellow-800"
-                      >
+                      <button type="button" onClick={() => setConditions(conditions.filter((_, i) => i !== idx))} className="text-yellow-600 hover:text-yellow-800">
                         <Trash2 className="h-4 w-4" />
                       </button>
                     </div>
                   ))}
                 </div>
                 <div className="flex gap-2">
-                  <Input
-                    placeholder={t("patient.conditions")}
-                    value={newCondition}
-                    onChange={(e) => setNewCondition(e.target.value)}
-                  />
-                  <Button type="button" onClick={handleAddCondition} size="sm">
-                    <Plus className="h-4 w-4" />
-                  </Button>
+                  <Input placeholder={t("patient.conditions")} value={newCondition} onChange={(e) => setNewCondition(e.target.value)} />
+                  <Button type="button" onClick={handleAddCondition} size="sm"><Plus className="h-4 w-4" /></Button>
                 </div>
               </div>
 
-              {/* Emergency Contacts */}
+              {/* Emergency Contacts (Merged from Snippet 1) */}
               <div>
                 <label className="block text-sm font-medium mb-2">{t("patient.emergency_contacts")}</label>
                 <div className="space-y-2 mb-3">
@@ -319,40 +250,20 @@ export default function PatientProfile() {
                     <div key={idx} className="flex items-center justify-between bg-green-50 p-2 rounded border border-green-200">
                       <div>
                         <p className="font-medium text-green-900">{contact.name}</p>
-                        <p className="text-xs text-green-700">
-                          {contact.phone} - {contact.relation}
-                        </p>
+                        <p className="text-xs text-green-700">{contact.phone} - {contact.relation}</p>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveContact(idx)}
-                        className="text-green-600 hover:text-green-800"
-                      >
+                      <button type="button" onClick={() => setContacts(contacts.filter((_, i) => i !== idx))} className="text-green-600 hover:text-green-800">
                         <Trash2 className="h-4 w-4" />
                       </button>
                     </div>
                   ))}
                 </div>
                 <div className="grid grid-cols-3 gap-2">
-                  <Input
-                    placeholder={t("patient.contact_name")}
-                    value={newContact.name}
-                    onChange={(e) => setNewContact({ ...newContact, name: e.target.value })}
-                  />
-                  <Input
-                    placeholder={t("patient.contact_phone")}
-                    value={newContact.phone}
-                    onChange={(e) => setNewContact({ ...newContact, phone: e.target.value })}
-                  />
+                  <Input placeholder={t("patient.contact_name")} value={newContact.name} onChange={(e) => setNewContact({ ...newContact, name: e.target.value })} />
+                  <Input placeholder={t("patient.contact_phone")} value={newContact.phone} onChange={(e) => setNewContact({ ...newContact, phone: e.target.value })} />
                   <div className="flex gap-2">
-                    <Input
-                      placeholder={t("patient.contact_relation")}
-                      value={newContact.relation}
-                      onChange={(e) => setNewContact({ ...newContact, relation: e.target.value })}
-                    />
-                    <Button type="button" onClick={handleAddContact} size="sm">
-                      <Plus className="h-4 w-4" />
-                    </Button>
+                    <Input placeholder={t("patient.contact_relation")} value={newContact.relation} onChange={(e) => setNewContact({ ...newContact, relation: e.target.value })} />
+                    <Button type="button" onClick={handleAddContact} size="sm"><Plus className="h-4 w-4" /></Button>
                   </div>
                 </div>
               </div>
@@ -360,33 +271,12 @@ export default function PatientProfile() {
               {/* Action Buttons */}
               <div className="flex gap-3 pt-4">
                 <Button type="submit" className="flex-1" disabled={loading}>
-                  {loading ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      {t("common.loading")}
-                    </>
-                  ) : (
-                    t("common.save")
-                  )}
+                  {loading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> {t("common.loading")}</> : t("common.save")}
                 </Button>
 
                 {profileExists && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={handleDownloadQR}
-                    disabled={downloading}
-                  >
-                    {downloading ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      </>
-                    ) : (
-                      <>
-                        <Download className="mr-2 h-4 w-4" />
-                        {t("patient.download_qr")}
-                      </>
-                    )}
+                  <Button type="button" variant="outline" onClick={handleDownloadQR} disabled={downloading}>
+                    {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Download className="mr-2 h-4 w-4" /> {t("patient.download_qr")}</>}
                   </Button>
                 )}
               </div>
