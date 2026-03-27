@@ -7,8 +7,8 @@
   "display": "standalone",
   "display_override": ["fullscreen", "minimal-ui"],
   "orientation": "portrait-primary",
-  "theme_color": "#4f46e5",
-  "background_color": "#ffffff",
+  "theme_color": "#2EC4B6",
+  "background_color": "#F7F9FB",
   "icons": [
     {
       "src": "/logo.svg",
@@ -35,28 +35,30 @@
       "sizes": "540x720",
       "type": "image/svg+xml",
       "form_factor": "narrow",
-      "label": "MyUZIMA Mobile"
+      "label": "MyUZIMA Mobile Dashboard"
     },
     {
       "src": "/logo.svg",
       "sizes": "1280x720",
       "type": "image/svg+xml",
       "form_factor": "wide",
-      "label": "MyUZIMA Desktop"
+      "label": "MyUZIMA Desktop Interface"
     }
   ],
-  "categories": ["medical", "emergency"],
+  "categories": ["medical", "emergency", "health"],
   "shortcuts": [
     {
-      "name": "Patient Registration",
+      "name": "Register New Patient",
       "short_name": "Register",
       "url": "/patient/register",
+      "description": "Quick access to add a new patient profile",
       "icons": [{ "src": "/logo.svg", "sizes": "96x96", "type": "image/svg+xml" }]
     },
     {
-      "name": "Responder Access",
+      "name": "Scan QR Code",
       "short_name": "Scan",
       "url": "/responder/scan",
+      "description": "Open the emergency responder scanner",
       "icons": [{ "src": "/logo.svg", "sizes": "96x96", "type": "image/svg+xml" }]
     }
   ]
