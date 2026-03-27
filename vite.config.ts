@@ -100,7 +100,7 @@ export default defineConfig({
     vitePluginManusDebugCollector(),
     VitePWA({
       strategies: 'injectManifest',
-      srcDir: 'client/public', // Points to where sw.js is located
+      srcDir: 'client/public', 
       filename: 'sw.js',
       registerType: 'autoUpdate',
       injectRegister: 'auto',
@@ -120,10 +120,10 @@ export default defineConfig({
       },
       injectManifest: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
-        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024, // 3MB limit for safety
+        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024, 
       },
       devOptions: {
-        enabled: true, // Allows testing PWA features in dev mode
+        enabled: true, 
         type: 'module'
       }
     })
@@ -142,10 +142,18 @@ export default defineConfig({
     outDir: path.resolve(PROJECT_ROOT, "dist/public"),
     emptyOutDir: true,
     reportCompressedSize: false,
-    sourcemap: false // Set to true if you need to debug production builds
+    sourcemap: false 
   },
   server: {
     host: true,
+    // THE PROXY: This allows Port 5173 to talk to your Port 3000 backend
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+        secure: false,
+      },
+    },
     allowedHosts: [
       ".manuspre.computer",
       ".manus.computer",
