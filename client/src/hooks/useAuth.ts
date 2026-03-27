@@ -1,21 +1,27 @@
 import { useState, useEffect } from "react";
 
 export function useAuth() {
+  const [user, setUser] = useState<any>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // This calls your API (routed through Nginx) to check the session
     async function checkAuth() {
       try {
-        const response = await fetch("/api/auth/status");
+        // Updated from /api/auth/status to /api/auth/me
+        const response = await fetch("/api/auth/me");
+        
         if (response.ok) {
           const data = await response.json();
-          setIsAuthenticated(data.authenticated);
+          // If data exists, the user is logged in
+          setUser(data);
+          setIsAuthenticated(!!data); 
         } else {
+          setUser(null);
           setIsAuthenticated(false);
         }
       } catch (error) {
+        setUser(null);
         setIsAuthenticated(false);
       } finally {
         setLoading(false);
@@ -25,5 +31,5 @@ export function useAuth() {
     checkAuth();
   }, []);
 
-  return { isAuthenticated, loading };
+  return { user, isAuthenticated, loading };
 }
