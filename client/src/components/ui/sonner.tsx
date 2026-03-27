@@ -8,9 +8,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
     <Sonner
       theme={theme as ToasterProps["theme"]}
       className="toaster group"
-      // Rich colors makes the success/error icons pop
       richColors 
-      // Close button for better UX on mobile PWAs
       closeButton
       style={
         {
@@ -19,15 +17,25 @@ const Toaster = ({ ...props }: ToasterProps) => {
           "--normal-text": "var(--color-healthcare-text)",
           "--normal-border": "var(--border)",
           
-          /* Success Branding */
+          /* Success Branding (Emerald) */
           "--success-bg": "#ECFDF5",
           "--success-text": "var(--color-healthcare-success)",
           "--success-border": "rgba(16, 185, 129, 0.1)",
           
-          /* Primary/Info Branding (Using your Teal) */
+          /* Info Branding (Your Teal) */
           "--info-bg": "var(--color-healthcare-teal-light)",
           "--info-text": "var(--color-healthcare-deep)",
           "--info-border": "rgba(46, 196, 182, 0.1)",
+
+          /* Error Branding (Medical Red) */
+          "--error-bg": "#FEF2F2",
+          "--error-text": "#DC2626",
+          "--error-border": "rgba(220, 38, 38, 0.1)",
+
+          /* Warning Branding (Amber) */
+          "--warning-bg": "#FFFBEB",
+          "--warning-text": "#D97706",
+          "--warning-border": "rgba(217, 119, 6, 0.1)",
           
           /* Global UI Adjustments */
           "--radius": "12px",
