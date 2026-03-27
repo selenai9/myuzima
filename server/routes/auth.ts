@@ -29,6 +29,7 @@ const setAuthCookies = (res: Response, accessToken: string, refreshToken: string
 const getMe = async (req: Request, res: Response) => {
   try {
     const token = req.cookies.accessToken;
+    // If no cookie, return null
     if (!token) return res.json(null);
 
     const payload = verifyToken(token) as JWTPayload;
@@ -41,9 +42,9 @@ const getMe = async (req: Request, res: Response) => {
   }
 };
 
-// Register both routes to the same handler
+// Register both routes to the same handler to fix frontend 404s
 router.get("/me", getMe);
-router.get("/status", getMe); // This is the alias that fixes the 404!
+router.get("/status", getMe); 
 
 /**
  * POST /auth/register
