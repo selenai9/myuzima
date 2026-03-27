@@ -4,26 +4,29 @@
     <meta charset="UTF-8" />
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1.0, maximum-scale=1"
+      content="width=device-width, initial-scale=1.0, maximum-scale=5"
     />
     <title>MyUZIMA Emergency QR Access System</title>
 
     <meta name="theme-color" content="#4f46e5" />
     <meta name="description" content="Life-critical medical information via QR codes." />
+    
     <link rel="manifest" href="/manifest.json" />
 
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />
     <link rel="apple-touch-icon" href="/logo.svg" />
-
   </head>
 
   <body>
+    <noscript>
+      <div style="text-align: center; padding: 20px; font-family: sans-serif;">
+        <h1>JavaScript Required</h1>
+        <p>MyUZIMA requires JavaScript to display emergency medical data.</p>
+      </div>
+    </noscript>
+
     <div id="root"></div>
+
     <script type="module" src="/src/main.tsx"></script>
-    <script
-      defer
-      src="%VITE_ANALYTICS_ENDPOINT%/umami"
-      data-website-id="%VITE_ANALYTICS_WEBSITE_ID%"
-    ></script>
   </body>
 </html>
