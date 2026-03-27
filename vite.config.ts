@@ -108,14 +108,14 @@ export default defineConfig({
         name: 'MyUZIMA Emergency System',
         short_name: 'MyUZIMA',
         description: 'Emergency QR Access System',
-        theme_color: '#ffffff',
-        background_color: '#ffffff',
+        theme_color: '#2EC4B6', // Updated to match your brand
+        background_color: '#F7F9FB', // Updated to match your brand
         display: 'standalone',
         start_url: '/',
         icons: [
-          { src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' },
-          { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png' },
-          { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' }
+          { src: '/logo.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
+          { src: '/logo.svg', sizes: '192x192', type: 'image/svg+xml', purpose: 'maskable' },
+          { src: '/logo.svg', sizes: '512x512', type: 'image/svg+xml', purpose: 'any' }
         ]
       },
       injectManifest: {
@@ -128,6 +128,12 @@ export default defineConfig({
       }
     })
   ],
+
+  // CRITICAL ADDITION: Optimization for Lucide Icons
+  optimizeDeps: {
+    exclude: ['lucide-react'] 
+  },
+
   resolve: {
     alias: {
       "@": path.resolve(PROJECT_ROOT, "client", "src"),
@@ -146,7 +152,6 @@ export default defineConfig({
   },
   server: {
     host: true,
-    // THE PROXY: This allows Port 5173 to talk to your Port 3000 backend
     proxy: {
       '/api': {
         target: 'http://localhost:3000',
