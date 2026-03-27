@@ -20,33 +20,34 @@ const createResponderSchema = z.object({
   pin: z.string().length(4, "PIN must be 4 digits"),
 });
 
-// Zod schema to validate incoming query parameters for the audit log
 const auditLogFilterSchema = z.object({
   responderId: z.string().optional(),
   patientId: z.string().optional(),
   accessMethod: z.enum(["QR_SCAN", "USSD", "OFFLINE_CACHE"]).optional(),
-  // Coerce string dates into Date objects automatically
   startDate: z.preprocess((arg) => (typeof arg === "string" ? new Date(arg) : arg), z.date().optional()),
   endDate: z.preprocess((arg) => (typeof arg === "string" ? new Date(arg) : arg), z.date().optional()),
-  // Handle string numbers from query params
   limit: z.preprocess((val) => Number(val), z.number().int().min(1).max(100).default(50)),
   offset: z.preprocess((val) => Number(val), z.number().int().min(0).default(0)),
 });
 
 /**
- * POST /admin/responder
- * Add responder to badge registry
- */
-/**
- * GET /admin/responders
- * List all responders
+ * GET /api/admin/responders
  */
 router.get("/responders", authMiddleware, adminAuthMiddleware, async (req: Request, res: Response) => {
   try {
     const db = await getDb();
     if (!db) throw new Error("Database not available");
 
-    const allResponders = await db.select().from(responders);
+    // Proactive Security: Select all fields EXCEPT pinHash
+    const allResponders = await db.select({
+      id: responders.id,
+      badgeId: responders.badgeId,
+      name: responders.name,
+      role: responders.role,
+      facilityId: responders.facilityId,
+      isActive: responders.isActive,
+      createdAt: responders.createdAt
+    }).from(responders);
 
     res.json({
       success: true,
@@ -59,8 +60,7 @@ router.get("/responders", authMiddleware, adminAuthMiddleware, async (req: Reque
 });
 
 /**
- * GET /admin/facilities
- * List all facilities
+ * GET /api/admin/facilities
  */
 router.get("/facilities", authMiddleware, adminAuthMiddleware, async (req: Request, res: Response) => {
   try {
@@ -79,10 +79,12 @@ router.get("/facilities", authMiddleware, adminAuthMiddleware, async (req: Reque
   }
 });
 
+/**
+ * POST /api/admin/responder
+ */
 router.post("/responder", authMiddleware, adminAuthMiddleware, async (req: Request, res: Response) => {
   try {
     const data = createResponderSchema.parse(req.body);
-
     const db = await getDb();
     if (!db) throw new Error("Database not available");
 
@@ -115,13 +117,11 @@ router.post("/responder", authMiddleware, adminAuthMiddleware, async (req: Reque
 });
 
 /**
- * DELETE /admin/responder/:id
- * Deactivate responder
+ * DELETE /api/admin/responder/:id
  */
 router.delete("/responder/:id", authMiddleware, adminAuthMiddleware, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-
     const db = await getDb();
     if (!db) throw new Error("Database not available");
 
@@ -140,29 +140,15 @@ router.delete("/responder/:id", authMiddleware, adminAuthMiddleware, async (req:
 });
 
 /**
- * GET /admin/audit-logs
- * Paginated audit log with filters
+ * GET /api/admin/audit-logs
  */
 router.get("/audit-logs", authMiddleware, adminAuthMiddleware, async (req: Request, res: Response) => {
   try {
-    // 1. Validate and parse the query parameters
     const parsed = auditLogFilterSchema.parse(req.query);
 
-    const auditFilters = {
-      responderId: parsed.responderId,
-      patientId: parsed.patientId,
-      accessMethod: parsed.accessMethod,
-      startDate: parsed.startDate,
-      endDate: parsed.endDate,
-    };
-
-    /**
-     * GLUE CODE: Running fetch and count in parallel.
-     * This reduces the total API response time by executing both SQL queries simultaneously.
-     */
     const [logs, total] = await Promise.all([
-      getAllAuditLogs(parsed.limit, parsed.offset, auditFilters),
-      countAuditLogs(auditFilters)
+      getAllAuditLogs(parsed.limit, parsed.offset, parsed),
+      countAuditLogs(parsed)
     ]);
 
     res.json({
@@ -185,12 +171,10 @@ router.get("/audit-logs", authMiddleware, adminAuthMiddleware, async (req: Reque
 });
 
 /**
- * GET /admin/stats
- * System statistics
+ * GET /api/admin/stats
  */
 router.get("/stats", authMiddleware, adminAuthMiddleware, async (req: Request, res: Response) => {
   try {
-    // Using the optimized countAuditLogs without filters to get total system-wide scans
     const totalScans = await countAuditLogs();
 
     res.json({
