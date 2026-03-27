@@ -1,14 +1,14 @@
-// MyUZIMA Service Worker - v1.0.6
-const CACHE_NAME = "myuzima-v1.0.6";
+// MyUZIMA Service Worker - v1.0.7
+const CACHE_NAME = "myuzima-v1.0.7";
 const RUNTIME_CACHE = "myuzima-runtime-v1";
 const API_CACHE = "myuzima-api-v1";
 
-// Only cache the bare essentials; let the 'fetch' event cache the rest dynamically
+// Essential shell assets
 const STATIC_ASSETS = [
   "/",
   "/index.html",
   "/manifest.json",
-  "/favicon.ico",
+  "/logo.svg", // Added branded logo
 ];
 
 self.addEventListener("install", (event) => {
@@ -35,28 +35,29 @@ self.addEventListener("fetch", (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
+  // Skip cross-origin requests (like analytics) to avoid opaque cache issues
   if (url.origin !== location.origin) return;
 
-  // 1. API Strategy (Network First)
+  // 1. API Strategy (Network First) - Critical for Medical Data
   if (url.pathname.startsWith("/api/")) {
     event.respondWith(networkFirstStrategy(request));
     return;
   }
 
-  // 2. SPA Navigation (Serve index.html)
+  // 2. SPA Navigation - Ensures the app loads even if the specific URL isn't cached
   if (request.mode === "navigate") {
-    event.respondWith(fetch(request).catch(() => caches.match("/index.html")));
+    event.respondWith(
+      fetch(request).catch(() => caches.match("/index.html"))
+    );
     return;
   }
 
-  // 3. Hashed Assets (Cache First) - Vite assets contain hashes, they never change!
-  if (request.method === "GET" && url.pathname.includes("/assets/")) {
-    event.respondWith(cacheFirstStrategy(request));
-    return;
-  }
-
-  // 4. Other Statics
-  if (request.method === "GET" && url.pathname.match(/\.(js|css|woff2?|svg|png|jpg|jpeg|webp)$/i)) {
+  // 3. Static Assets & Fonts (Cache First)
+  // We explicitly target woff2 for our self-hosted Inter font
+  if (
+    request.method === "GET" && 
+    (url.pathname.includes("/assets/") || url.pathname.match(/\.(js|css|woff2|svg|png|jpg|jpeg|webp)$/i))
+  ) {
     event.respondWith(cacheFirstStrategy(request));
   }
 });
@@ -66,7 +67,7 @@ self.addEventListener("fetch", (event) => {
 async function networkFirstStrategy(request) {
   try {
     const response = await fetch(request);
-    // Only cache successful GET requests to the API
+    // Only cache successful GET requests to the API (don't cache POST/PUT/DELETE)
     if (response.ok && request.method === "GET") {
       const cache = await caches.open(API_CACHE);
       cache.put(request, response.clone());
@@ -74,7 +75,8 @@ async function networkFirstStrategy(request) {
     return response;
   } catch (error) {
     const cached = await caches.match(request);
-    return cached || new Response(JSON.stringify({ error: "Offline" }), { 
+    // If offline and no cache, return a JSON error that the UI can handle
+    return cached || new Response(JSON.stringify({ error: "Offline - No cached data available" }), { 
       status: 503, 
       headers: { "Content-Type": "application/json" } 
     });
@@ -90,25 +92,25 @@ async function cacheFirstStrategy(request) {
     cache.put(request, response.clone());
     return response;
   } catch {
-    return new Response("Not Found", { status: 404 });
+    return new Response("Asset not found offline", { status: 404 });
   }
 }
 
-// --- Background Sync Logic ---
+// --- Background Sync Logic for Audit Logs ---
+
+async function openDB() {
+  return new Promise((resolve, reject) => {
+    // Version 3 matches your current IndexedDB setup
+    const request = indexedDB.open("myuzima", 3);
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => resolve(request.result);
+  });
+}
 
 const promisify = (request) => new Promise((res, rej) => {
   request.onsuccess = () => res(request.result);
   request.onerror = () => rej(request.error);
 });
-
-function openDB() {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open("myuzima", 3);
-    request.onerror = () => reject(request.error);
-    request.onsuccess = () => resolve(request.result);
-    // (onupgradeneeded is handled in idb.ts, but kept here for SW isolation)
-  });
-}
 
 self.addEventListener("sync", (event) => {
   if (event.tag === "sync-audit-logs") {
@@ -116,8 +118,9 @@ self.addEventListener("sync", (event) => {
   }
 });
 
+// Message listener for manual sync triggers from the UI
 self.addEventListener("message", (event) => {
-  if (event.data.type === "SYNC_AUDIT_LOGS") {
+  if (event.data && event.data.type === "SYNC_AUDIT_LOGS") {
     event.waitUntil(syncAuditLogs());
   }
 });
@@ -130,7 +133,6 @@ async function syncAuditLogs() {
     const logStore = tx.objectStore("auditLogs");
     const metaStore = tx.objectStore("metadata");
 
-    const tokenData = await promisify(metaStore.get("auth_token"));
     const allLogs = await promisify(logStore.getAll());
     const unsyncedLogs = allLogs.filter(log => !log.synced);
 
@@ -138,17 +140,14 @@ async function syncAuditLogs() {
 
     const formattedLogs = unsyncedLogs.map(log => ({
       patientId: log.patientId,
-      accessType: log.accessMethod || "OFFLINE_CACHE", // Mapping to Backend Schema
+      accessType: log.accessMethod || "OFFLINE_CACHE",
       timestamp: log.timestamp || new Date().toISOString()
     }));
 
     const response = await fetch("/api/emergency/audit/log", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(tokenData?.value && { "Authorization": `Bearer ${tokenData.value}` })
-      },
-      credentials: 'include',
+      headers: { "Content-Type": "application/json" },
+      credentials: 'include', // Ensures the HttpOnly JWT is sent
       body: JSON.stringify({ logs: formattedLogs })
     });
 
@@ -158,6 +157,7 @@ async function syncAuditLogs() {
       for (const log of unsyncedLogs) {
         deleteStore.delete(log.id);
       }
+      console.log(`[SW] Successfully synced ${unsyncedLogs.length} logs.`);
     }
   } catch (err) {
     console.error("[SW] Sync Error:", err);
