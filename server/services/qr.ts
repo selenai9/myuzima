@@ -6,134 +6,87 @@ import { eq } from "drizzle-orm";
 import { generateQRPayloadToken } from "./crypto";
 
 /**
- * Generate QR code as data URL (PNG)
- * The QR code contains an encrypted reference token that the server can decrypt
- */
-export async function generateQRCodeDataUrl(profileId: string): Promise<string> {
-  try {
-    const token = generateQRPayloadToken(profileId);
-    const qrDataUrl = await QRCode.toDataURL(token, {
-      errorCorrectionLevel: "H",
-      margin: 1,
-      width: 300,
-    });
-    return qrDataUrl;
-  } catch (error) {
-    throw new Error(`QR code generation failed: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
-
-/**
  * Generate QR code as PNG buffer
  */
 export async function generateQRCodeBuffer(profileId: string): Promise<Buffer> {
   try {
     const token = generateQRPayloadToken(profileId);
-    const buffer = await QRCode.toBuffer(token, {
+    return await QRCode.toBuffer(token, {
       errorCorrectionLevel: "H",
       type: "png",
       margin: 1,
       width: 300,
     });
-    return buffer;
   } catch (error) {
-    throw new Error(`QR code generation failed: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`QR generation failed: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
 /**
  * Generate PDF emergency card with QR code
- * Card includes patient info, blood type, and QR code for scanning
  */
 export async function generateEmergencyCardPDF(profileId: string, patientPhone: string): Promise<Buffer> {
   try {
     const db = await getDb();
     if (!db) throw new Error("Database not available");
 
-    // Fetch emergency profile
-    const profiles = await db
-      .select()
-      .from(emergencyProfiles)
-      .where(eq(emergencyProfiles.id, profileId))
-      .limit(1);
-
-    if (profiles.length === 0) {
-      throw new Error("Emergency profile not found");
-    }
-
-    // Generate QR code
+    // Generate QR code buffer directly
     const qrBuffer = await generateQRCodeBuffer(profileId);
-    const qrBase64 = qrBuffer.toString("base64");
-    const qrDataUrl = `data:image/png;base64,${qrBase64}`;
 
     // Create PDF
     const pdfDoc = await PDFDocument.create();
-    const page = pdfDoc.addPage([612, 792]); // Letter size
+    const page = pdfDoc.addPage([400, 600]); // Custom size for a "card" feel
     const { width, height } = page.getSize();
 
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
-    const margin = 40;
-    let y = height - margin;
+    // Header
+    page.drawRectangle({
+      x: 0,
+      y: height - 60,
+      width: width,
+      height: 60,
+      color: rgb(0.8, 0.1, 0.1), // Red header for emergency
+    });
 
-    // Title
-    page.drawText("MyUZIMA Emergency Medical Card", {
-      x: margin,
-      y,
-      size: 24,
+    page.drawText("MyUZIMA EMERGENCY CARD", {
+      x: 20,
+      y: height - 40,
+      size: 18,
       font: boldFont,
-      color: rgb(0.2, 0.2, 0.8),
+      color: rgb(1, 1, 1),
     });
-    y -= 40;
 
-    // Patient info
-    page.drawText(`Patient Phone: ${patientPhone}`, {
-      x: margin,
-      y,
-      size: 12,
-      font,
-    });
-    y -= 25;
+    // Patient Info
+    let y = height - 100;
+    page.drawText(`Registered Phone: ${patientPhone}`, { x: 20, y, size: 12, font });
+    y -= 20;
+    page.drawText(`Date: ${new Date().toLocaleDateString()}`, { x: 20, y, size: 10, font, color: rgb(0.4, 0.4, 0.4) });
 
-    page.drawText(`Generated: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`, {
-      x: margin,
-      y,
-      size: 10,
-      font,
-      color: rgb(0.5, 0.5, 0.5),
-    });
-    y -= 40;
-
-    // Instructions
-    page.drawText("Scan this QR code to access emergency profile:", {
-      x: margin,
-      y,
-      size: 12,
-      font: boldFont,
-    });
-    y -= 30;
-
-    // Embed QR code image
+    // Embed QR Code
     const qrImage = await pdfDoc.embedPng(qrBuffer);
-    const qrSize = 250;
-    const qrX = (width - qrSize) / 2;
+    const qrSize = 200;
     page.drawImage(qrImage, {
-      x: qrX,
-      y: y - qrSize,
+      x: (width - qrSize) / 2,
+      y: y - 240,
       width: qrSize,
       height: qrSize,
     });
-    y -= qrSize + 40;
 
-    // Footer
-    page.drawText("Keep this card with you at all times. First responders will scan this QR code to access your medical information.", {
-      x: margin,
-      y,
+    // Footer Instructions
+    page.drawText("INSTRUCTIONS FOR FIRST RESPONDERS:", {
+      x: 20,
+      y: 100,
+      size: 10,
+      font: boldFont,
+    });
+    page.drawText("1. Scan the QR code above.\n2. Access critical medical data immediately.\n3. Provide life-saving care based on profile.", {
+      x: 20,
+      y: 80,
       size: 9,
       font,
-      color: rgb(0.5, 0.5, 0.5),
-      maxWidth: width - 2 * margin,
+      lineHeight: 12,
     });
 
     const pdfBytes = await pdfDoc.save();
@@ -164,15 +117,11 @@ export async function regenerateQRCode(profileId: string): Promise<string> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  // Generate new encrypted payload
   const token = generateQRPayloadToken(profileId);
 
-  // Update QR code in database
   await db
     .update(qrCodes)
-    .set({
-      encryptedPayload: token,
-    })
+    .set({ encryptedPayload: token })
     .where(eq(qrCodes.profileId, profileId));
 
   return token;
