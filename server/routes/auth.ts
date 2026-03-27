@@ -3,7 +3,6 @@ import { z } from "zod";
 import bcryptjs from "bcryptjs";
 import { createPatient, getPatientByPhone, getResponderByBadgeId } from "../db";
 import { createOTP, verifyOTP } from "../services/otp";
-// Import the JWTPayload interface we synced in the middleware file
 import { generateAccessToken, generateRefreshToken, verifyToken, JWTPayload } from "../middleware/auth";
 import { otpRegisterLimiter, otpVerifyLimiter, responderLoginLimiter } from "../middleware/rateLimit";
 
@@ -24,6 +23,29 @@ const setAuthCookies = (res: Response, accessToken: string, refreshToken: string
 };
 
 /**
+ * GET /auth/me & GET /auth/status (Alias)
+ * Checks if the user has a valid session cookie and returns their profile.
+ */
+const getMe = async (req: Request, res: Response) => {
+  try {
+    const token = req.cookies.accessToken;
+    if (!token) return res.json(null);
+
+    const payload = verifyToken(token) as JWTPayload;
+    res.json({
+      authenticated: true,
+      user: payload
+    });
+  } catch (error) {
+    res.json(null);
+  }
+};
+
+// Register both routes to the same handler
+router.get("/me", getMe);
+router.get("/status", getMe); // This is the alias that fixes the 404!
+
+/**
  * POST /auth/register
  */
 router.post("/register", otpRegisterLimiter, async (req: Request, res: Response) => {
@@ -42,7 +64,6 @@ router.post("/register", otpRegisterLimiter, async (req: Request, res: Response)
 
 /**
  * POST /auth/verify-otp
- * UPDATED: Uses 'role' instead of 'type'
  */
 router.post("/verify-otp", otpVerifyLimiter, async (req: Request, res: Response) => {
   try {
@@ -51,12 +72,11 @@ router.post("/verify-otp", otpVerifyLimiter, async (req: Request, res: Response)
     const patient = await getPatientByPhone(phone);
     if (!patient) throw new Error("Patient not found");
 
-    // FIX: Standardize to 'role' and add 'name' for Audit Logs
     const payload: JWTPayload = { 
       role: "patient", 
       id: patient.id, 
       phone,
-      name: "Patient" // Or patient.name if available in DB
+      name: "Patient" 
     };
     
     const accessToken = generateAccessToken(payload);
@@ -76,7 +96,6 @@ router.post("/verify-otp", otpVerifyLimiter, async (req: Request, res: Response)
 
 /**
  * POST /auth/responder/login
- * UPDATED: Ensures payload matches JWTPayload interface
  */
 router.post("/responder/login", responderLoginLimiter, async (req: Request, res: Response) => {
   try {
@@ -87,12 +106,11 @@ router.post("/responder/login", responderLoginLimiter, async (req: Request, res:
     const pinValid = await bcryptjs.compare(pin, responder.pinHash);
     if (!pinValid) throw new Error("Invalid credentials");
 
-    // FIX: Match the standardized payload
     const payload: JWTPayload = { 
       role: (responder.role as any) || "responder", 
       id: responder.id, 
       badgeId: responder.badgeId,
-      name: responder.name // CRITICAL for Audit Logs
+      name: responder.name 
     };
 
     const accessToken = generateAccessToken(payload);
@@ -110,5 +128,13 @@ router.post("/responder/login", responderLoginLimiter, async (req: Request, res:
   }
 });
 
-// ... (keep /refresh, /me, and /logout as they were)
+/**
+ * POST /auth/logout
+ */
+router.post("/logout", (req, res) => {
+  res.clearCookie("accessToken", COOKIE_OPTIONS);
+  res.clearCookie("refreshToken", COOKIE_OPTIONS);
+  res.json({ success: true });
+});
+
 export default router;
