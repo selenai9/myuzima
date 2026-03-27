@@ -7,19 +7,16 @@ const ACCESS_TOKEN_EXPIRY = "15m";
 const REFRESH_TOKEN_EXPIRY = "7d";
 
 /**
- * JWT payload structure
+ * JWT payload structure - SYNCED with patient.ts
  */
 export interface JWTPayload {
-  type: "patient" | "responder";
-  id: string; // This is the patientId or responderId
+  role: "patient" | "responder" | "admin"; // Changed 'type' to 'role'
+  id: string; 
   phone?: string;
   badgeId?: string;
-  role?: string;
+  name?: string; // Added for Audit Logs
 }
 
-/**
- * Extend Express Request type
- */
 declare global {
   namespace Express {
     interface Request {
@@ -29,40 +26,27 @@ declare global {
   }
 }
 
-export function generateAccessToken(payload: JWTPayload): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: ACCESS_TOKEN_EXPIRY });
-}
-
-export function generateRefreshToken(payload: JWTPayload): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: REFRESH_TOKEN_EXPIRY });
-}
-
+// Helper: Verify Token
 export function verifyToken(token: string): JWTPayload | null {
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as JWTPayload;
-    return decoded;
-  } catch (error) {
+    return jwt.verify(token, JWT_SECRET) as JWTPayload;
+  } catch {
     return null;
   }
 }
 
 /**
- * UPDATED: Express middleware to verify JWT token from Cookies (C-03)
+ * Main Auth Middleware
  */
 export function authMiddleware(req: Request, res: Response, next: NextFunction) {
-  // 1. Check HttpOnly Cookie first (Production behavior)
-  // 2. Fallback to Authorization header (Development/Testing behavior)
   const token = req.cookies?.accessToken || 
-                (req.headers.authorization?.startsWith("Bearer ") 
-                  ? req.headers.authorization.substring(7) 
-                  : null);
+                req.headers.authorization?.split(" ")[1];
 
   if (!token) {
     return res.status(401).json({ error: "Authentication required" });
   }
 
   const payload = verifyToken(token);
-
   if (!payload) {
     return res.status(401).json({ error: "Invalid or expired session" });
   }
@@ -72,38 +56,31 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
 }
 
 /**
- * Middleware to verify patient authentication
+ * Patient Guard
  */
 export function patientAuthMiddleware(req: Request, res: Response, next: NextFunction) {
-  if (!req.user || req.user.type !== "patient") {
+  if (!req.user || req.user.role !== "patient") { // Use .role
     return res.status(403).json({ error: "Patient authentication required" });
   }
   next();
 }
 
 /**
- * Middleware to verify responder role
+ * Responder Guard (Updated for Audit Logs)
  */
 export async function responderAuthMiddleware(req: Request, res: Response, next: NextFunction) {
-  if (!req.user || req.user.type !== "responder") {
-    return res.status(403).json({ error: "Responder authentication required" });
+  if (!req.user || (req.user.role !== "responder" && req.user.role !== "admin")) {
+    return res.status(403).json({ error: "Responder access required" });
   }
 
-  const responder = await getResponderById(req.user.id);
-  if (!responder || !responder.isActive) {
-    return res.status(403).json({ error: "Responder not found or inactive" });
+  // Only perform DB check if it's a dedicated responder role
+  if (req.user.role === "responder") {
+    const responder = await getResponderById(req.user.id);
+    if (!responder || !responder.isActive) {
+      return res.status(403).json({ error: "Responder inactive" });
+    }
+    req.responder = responder;
   }
-
-  req.responder = responder;
-  next();
-}
-
-/**
- * Middleware to verify admin role
- */
-export function adminAuthMiddleware(req: Request, res: Response, next: NextFunction) {
-  if (!req.user || req.user.role !== "admin") {
-    return res.status(403).json({ error: "Admin access required" });
-  }
+  
   next();
 }
