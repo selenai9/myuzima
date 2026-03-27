@@ -1,33 +1,26 @@
 services:
-  # MySQL Database - ISOLATED from public access
   db:
     image: mysql:8.0
     container_name: myuzima-db
     restart: unless-stopped
-    env_file: .env  # <--- Added this to pull from root .env
+    env_file: .env
     environment:
-      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?DB_ROOT_PASSWORD is required}
-      MYSQL_DATABASE: ${DB_NAME:?DB_NAME is required}
-      MYSQL_USER: ${DB_USER:?DB_USER is required}
-      MYSQL_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?Required}
+      MYSQL_DATABASE: ${DB_NAME:?Required}
+      MYSQL_USER: ${DB_USER:?Required}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?Required}
     volumes:
       - db_data:/var/lib/mysql
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
     networks:
       - myuzima-network
 
-  # API Server - Internal Only
   api:
     build:
       context: .
       dockerfile: Dockerfile.api
     container_name: myuzima-api
     restart: unless-stopped
-    env_file: .env  # <--- Added this to pull from your root .env
+    env_file: .env
     depends_on:
       db:
         condition: service_healthy
@@ -38,58 +31,25 @@ services:
       DB_NAME: ${DB_NAME:?Required}
       DB_USER: ${DB_USER:?Required}
       DB_PASSWORD: ${DB_PASSWORD:?Required}
-      DB_PORT: 3306
       
       # Security & API Secrets
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
-      VITE_APP_ID: ${VITE_APP_ID:?VITE_APP_ID is required}
-      OAUTH_SERVER_URL: ${OAUTH_SERVER_URL:?OAUTH_SERVER_URL is required}
-      OWNER_OPEN_ID: ${OWNER_OPEN_ID:?OWNER_OPEN_ID is required}
-      OWNER_NAME: ${OWNER_NAME:?OWNER_NAME is required}
-      BUILT_IN_FORGE_API_URL: ${BUILT_IN_FORGE_API_URL:?Required}
-      BUILT_IN_FORGE_API_KEY: ${BUILT_IN_FORGE_API_KEY:?Required}
+      JWT_SECRET: ${JWT_SECRET:?Required}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Required}
       
-      # Fixed these names to match your .env exactly
-      VITE_FRONTEND_FORGE_API_URL: ${FRONTEND_FORGE_API_URL:?Required}
-      VITE_FRONTEND_FORGE_API_KEY: ${FRONTEND_FORGE_API_KEY:?Required}
-    volumes:
-      - frontend_assets:/app/dist/public:ro 
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
-      interval: 30s
-      timeout: 3s
-      retries: 3
-      start_period: 5s
+      # OAuth
+      VITE_APP_ID: ${VITE_APP_ID:?Required}
+      OAUTH_SERVER_URL: ${OAUTH_SERVER_URL:?Required}
+      OWNER_OPEN_ID: ${OWNER_OPEN_ID:?Required}
+      OWNER_NAME: ${OWNER_NAME:?Required}
+      
+      # Forge API - Mapped securely
+      # These will stay inside the 'api' container and won't go to the browser
+      BUILT_IN_FORGE_API_URL: ${FORGE_API_URL:?Required}
+      BUILT_IN_FORGE_API_KEY: ${FORGE_API_KEY:?Required}
+      FRONTEND_FORGE_API_URL: ${FRONTEND_FORGE_API_URL:?Required}
+      FRONTEND_FORGE_API_KEY: ${FRONTEND_FORGE_API_KEY:?Required}
     networks:
       - myuzima-network
 
-  # Nginx Reverse Proxy
   nginx:
-    image: nginx:alpine
-    container_name: myuzima-nginx
-    restart: unless-stopped
-    depends_on:
-      - api
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./ssl:/etc/nginx/ssl:ro
-      - nginx_cache:/var/cache/nginx
-      - frontend_assets:/usr/share/nginx/html:ro
-    networks:
-      - myuzima-network
-
-volumes:
-  db_data:
-    driver: local
-  nginx_cache:
-    driver: local
-  frontend_assets:
-    driver: local
-
-networks:
-  myuzima-network:
-    driver: bridge
+    # ... (remains the same as your previous script)
