@@ -11,19 +11,34 @@ import App from "./App";
 import { getLoginUrl } from "./const";
 import "./index.css";
 
-const queryClient = new QueryClient();
+// Initialize the TanStack Query Client
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // For a medical app, we want to be careful about stale data, 
+      // but also ensure it works when the network flickers.
+      retry: 1,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
+/**
+ * Global logic to handle session expiration.
+ * If any tRPC call returns an 'Unauthorized' error, 
+ * we kick the user to the login page immediately.
+ */
 const redirectToLoginIfUnauthorized = (error: unknown) => {
   if (!(error instanceof TRPCClientError)) return;
   if (typeof window === "undefined") return;
 
   const isUnauthorized = error.message === UNAUTHED_ERR_MSG;
-
   if (!isUnauthorized) return;
 
   window.location.href = getLoginUrl();
 };
 
+// Global error listeners for Queries
 queryClient.getQueryCache().subscribe(event => {
   if (event.type === "updated" && event.action.type === "error") {
     const error = event.query.state.error;
@@ -32,6 +47,7 @@ queryClient.getQueryCache().subscribe(event => {
   }
 });
 
+// Global error listeners for Mutations (POST/PUT/DELETE)
 queryClient.getMutationCache().subscribe(event => {
   if (event.type === "updated" && event.action.type === "error") {
     const error = event.mutation.state.error;
@@ -40,6 +56,9 @@ queryClient.getMutationCache().subscribe(event => {
   }
 });
 
+/**
+ * Configure tRPC Client with credentials for HttpOnly Cookie support
+ */
 const trpcClient = trpc.createClient({
   links: [
     httpBatchLink({
@@ -48,13 +67,14 @@ const trpcClient = trpc.createClient({
       fetch(input, init) {
         return globalThis.fetch(input, {
           ...(init ?? {}),
-          credentials: "include",
+          credentials: "include", // Required for JWT-in-cookie authentication
         });
       },
     }),
   ],
 });
 
+// Mount the React Application
 createRoot(document.getElementById("root")!).render(
   <trpc.Provider client={trpcClient} queryClient={queryClient}>
     <QueryClientProvider client={queryClient}>
@@ -63,15 +83,19 @@ createRoot(document.getElementById("root")!).render(
   </trpc.Provider>
 );
 
-// Register service worker for PWA functionality
+/**
+ * PWA Service Worker Registration
+ * Ensures medical profiles and assets are cached for offline availability.
+ */
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     navigator.serviceWorker
       .register("/sw.js")
       .then((registration) => {
-        console.log("[PWA] Service worker registered:", registration);
+        console.log("[PWA] Service worker registered successfully");
 
-        // Check for updates every 6 hours
+        // Force an update check every 6 hours 
+        // Important for ensuring responders have the latest security patches.
         setInterval(() => {
           registration.update();
         }, 6 * 60 * 60 * 1000);
@@ -80,9 +104,9 @@ if ("serviceWorker" in navigator) {
         console.error("[PWA] Service worker registration failed:", error);
       });
 
-    // Handle controller change (new service worker activated)
+    // Notify the app when a new version is ready to take over
     navigator.serviceWorker.addEventListener("controllerchange", () => {
-      console.log("[PWA] Service worker controller changed");
+      console.log("[PWA] New version detected, refreshing controller...");
     });
   });
 }
