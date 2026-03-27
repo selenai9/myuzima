@@ -1,6 +1,6 @@
 import "dotenv/config";
 import express from "express";
-import cookieParser from "cookie-parser"; // Added this
+import cookieParser from "cookie-parser";
 import { createServer } from "http";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
@@ -41,8 +41,8 @@ async function startServer() {
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   
-  // C-03: Enable cookie parsing to read HttpOnly tokens
-  app.use(cookieParser()); // Added this
+  // Enable cookie parsing to read HttpOnly tokens
+  app.use(cookieParser());
 
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
@@ -63,7 +63,7 @@ async function startServer() {
     })
   );
 
-  // development mode uses Vite, production mode uses static files
+  // Development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);
   } else {
@@ -78,25 +78,28 @@ async function startServer() {
   }
 
   server.listen(port, () => {
-    console.log(`Server running on http://localhost:${port}/`);
-    console.log(`MyUZIMA API routes registered:`);
-    console.log(`  POST   /api/auth/register`);
-    console.log(`  POST   /api/auth/verify-otp`);
-    console.log(`  POST   /api/auth/refresh`);
-    console.log(`  POST   /api/auth/logout`);           // Added to logs
-    console.log(`  GET    /api/auth/me`);               // Added to logs
-    console.log(`  POST   /api/patient/consent`);       // H-04 log
-    console.log(`  POST   /api/patient/profile`);
-    console.log(`  PUT    /api/patient/profile`);
-    console.log(/api/patient/profile`);
-    console.log(`  GET    /api/patient/qr`);
-    console.log(`  POST   /api/emergency/scan`);
-    console.log(`  GET    /api/emergency/offline-sync`);
-    console.log(`  POST   /api/admin/responder`);
-    console.log(`  DELETE /api/admin/responder/:id`);
-    console.log(`  GET    /api/admin/audit-logs`);
-    console.log(`  GET    /api/admin/stats`);
-    console.log(`  GET    /api/health`);
+    console.log(`\n🚀 MyUZIMA Server running on http://localhost:${port}/`);
+    console.log(`\n--- API Routes Registered ---`);
+    console.log(`[AUTH]      POST   /api/auth/register`);
+    console.log(`[AUTH]      POST   /api/auth/verify-otp`);
+    console.log(`[AUTH]      POST   /api/auth/refresh`);
+    console.log(`[AUTH]      POST   /api/auth/logout`);
+    console.log(`[AUTH]      GET    /api/auth/me`);
+    console.log(`[PATIENT]   POST   /api/patient/consent`);
+    console.log(`[PATIENT]   GET    /api/patient/profile`);
+    console.log(`[PATIENT]   POST   /api/patient/profile`);
+    console.log(`[PATIENT]   PUT    /api/patient/profile`);
+    console.log(`[PATIENT]   GET    /api/patient/qr`);
+    console.log(`[EMERGENCY] POST   /api/emergency/scan`);
+    console.log(`[EMERGENCY] GET    /api/emergency/offline-sync`);
+    console.log(`[ADMIN]     GET    /api/admin/responders`); // Added
+    console.log(`[ADMIN]     GET    /api/admin/facilities`); // Added
+    console.log(`[ADMIN]     POST   /api/admin/responder`);
+    console.log(`[ADMIN]     DELETE /api/admin/responder/:id`);
+    console.log(`[ADMIN]     GET    /api/admin/audit-logs`);
+    console.log(`[ADMIN]     GET    /api/admin/stats`);
+    console.log(`[HEALTH]    GET    /api/health`);
+    console.log(`-----------------------------\n`);
   });
 }
 
