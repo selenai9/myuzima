@@ -37,6 +37,48 @@ const auditLogFilterSchema = z.object({
  * POST /admin/responder
  * Add responder to badge registry
  */
+/**
+ * GET /admin/responders
+ * List all responders
+ */
+router.get("/responders", authMiddleware, adminAuthMiddleware, async (req: Request, res: Response) => {
+  try {
+    const db = await getDb();
+    if (!db) throw new Error("Database not available");
+
+    const allResponders = await db.select().from(responders);
+
+    res.json({
+      success: true,
+      responders: allResponders,
+    });
+  } catch (error) {
+    console.error("[Admin] Responder list error:", error);
+    res.status(500).json({ error: "Failed to fetch responders" });
+  }
+});
+
+/**
+ * GET /admin/facilities
+ * List all facilities
+ */
+router.get("/facilities", authMiddleware, adminAuthMiddleware, async (req: Request, res: Response) => {
+  try {
+    const db = await getDb();
+    if (!db) throw new Error("Database not available");
+
+    const allFacilities = await db.select().from(facilities);
+
+    res.json({
+      success: true,
+      facilities: allFacilities,
+    });
+  } catch (error) {
+    console.error("[Admin] Facility list error:", error);
+    res.status(500).json({ error: "Failed to fetch facilities" });
+  }
+});
+
 router.post("/responder", authMiddleware, adminAuthMiddleware, async (req: Request, res: Response) => {
   try {
     const data = createResponderSchema.parse(req.body);
