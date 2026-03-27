@@ -8,7 +8,7 @@ import { vitePluginManusRuntime } from "vite-plugin-manus-runtime";
 import { VitePWA } from 'vite-plugin-pwa';
 
 // =============================================================================
-// Manus Debug Collector - Vite Plugin
+// Manus Debug Collector - Vite Plugin (Development Only)
 // =============================================================================
 
 const PROJECT_ROOT = import.meta.dirname;
@@ -26,9 +26,7 @@ function ensureLogDir() {
 
 function trimLogFile(logPath: string, maxSize: number) {
   try {
-    if (!fs.existsSync(logPath) || fs.statSync(logPath).size <= maxSize) {
-      return;
-    }
+    if (!fs.existsSync(logPath) || fs.statSync(logPath).size <= maxSize) return;
     const lines = fs.readFileSync(logPath, "utf-8").split("\n");
     const keptLines: string[] = [];
     let keptBytes = 0;
@@ -47,10 +45,7 @@ function writeToLogFile(source: LogSource, entries: unknown[]) {
   if (entries.length === 0) return;
   ensureLogDir();
   const logPath = path.join(LOG_DIR, `${source}.log`);
-  const lines = entries.map((entry) => {
-    const ts = new Date().toISOString();
-    return `[${ts}] ${JSON.stringify(entry)}`;
-  });
+  const lines = entries.map((entry) => `[${new Date().toISOString()}] ${JSON.stringify(entry)}`);
   fs.appendFileSync(logPath, `${lines.join("\n")}\n`, "utf-8");
   trimLogFile(logPath, MAX_LOG_SIZE_BYTES);
 }
@@ -62,31 +57,26 @@ function vitePluginManusDebugCollector(): Plugin {
       if (process.env.NODE_ENV === "production") return html;
       return {
         html,
-        tags: [
-          {
-            tag: "script",
-            attrs: { src: "/__manus__/debug-collector.js", defer: true },
-            injectTo: "head",
-          },
-        ],
+        tags: [{
+          tag: "script",
+          attrs: { src: "/__manus__/debug-collector.js", defer: true },
+          injectTo: "head",
+        }],
       };
     },
     configureServer(server: ViteDevServer) {
       server.middlewares.use("/__manus__/logs", (req, res, next) => {
         if (req.method !== "POST") return next();
-        const handlePayload = (payload: any) => {
-          if (payload.consoleLogs?.length > 0) writeToLogFile("browserConsole", payload.consoleLogs);
-          if (payload.networkRequests?.length > 0) writeToLogFile("networkRequests", payload.networkRequests);
-          if (payload.sessionEvents?.length > 0) writeToLogFile("sessionReplay", payload.sessionEvents);
-          res.writeHead(200, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ success: true }));
-        };
         let body = "";
         req.on("data", (chunk) => { body += chunk.toString(); });
         req.on("end", () => {
           try {
             const payload = JSON.parse(body);
-            handlePayload(payload);
+            if (payload.consoleLogs?.length > 0) writeToLogFile("browserConsole", payload.consoleLogs);
+            if (payload.networkRequests?.length > 0) writeToLogFile("networkRequests", payload.networkRequests);
+            if (payload.sessionEvents?.length > 0) writeToLogFile("sessionReplay", payload.sessionEvents);
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ success: true }));
           } catch (e) {
             res.writeHead(400, { "Content-Type": "application/json" });
             res.end(JSON.stringify({ success: false }));
@@ -109,11 +99,11 @@ export default defineConfig({
     vitePluginManusRuntime(),
     vitePluginManusDebugCollector(),
     VitePWA({
+      strategies: 'injectManifest',
+      srcDir: 'client/public', // Points to where your sw.js is located
+      filename: 'sw.js',
       registerType: 'autoUpdate',
       injectRegister: 'auto',
-      strategies: 'injectManifest',
-      srcDir: 'public',
-      filename: 'sw.js',
       manifest: {
         name: 'MyUZIMA Emergency System',
         short_name: 'MyUZIMA',
@@ -121,30 +111,38 @@ export default defineConfig({
         theme_color: '#ffffff',
         background_color: '#ffffff',
         display: 'standalone',
+        start_url: '/',
         icons: [
-          { src: 'pwa-192x192.png', sizes: '192x192', type: 'image/png' },
-          { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png' }
+          { src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' },
+          { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png' },
+          { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' }
         ]
       },
-      workbox: {
+      injectManifest: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
-        navigateFallbackDenylist: [/^\/api/],
+        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024, // 3MB limit for safety
+      },
+      devOptions: {
+        enabled: true, // Allows testing PWA features in dev mode
+        type: 'module'
       }
     })
   ],
   resolve: {
     alias: {
-      "@": path.resolve(import.meta.dirname, "client", "src"),
-      "@shared": path.resolve(import.meta.dirname, "shared"),
-      "@assets": path.resolve(import.meta.dirname, "attached_assets"),
+      "@": path.resolve(PROJECT_ROOT, "client", "src"),
+      "@shared": path.resolve(PROJECT_ROOT, "shared"),
+      "@assets": path.resolve(PROJECT_ROOT, "attached_assets"),
     },
   },
-  envDir: path.resolve(import.meta.dirname),
-  root: path.resolve(import.meta.dirname, "client"),
-  publicDir: path.resolve(import.meta.dirname, "client", "public"),
+  envDir: PROJECT_ROOT,
+  root: path.resolve(PROJECT_ROOT, "client"),
+  publicDir: path.resolve(PROJECT_ROOT, "client", "public"),
   build: {
-    outDir: path.resolve(import.meta.dirname, "dist/public"),
+    outDir: path.resolve(PROJECT_ROOT, "dist/public"),
     emptyOutDir: true,
+    reportCompressedSize: false,
+    sourcemap: false // Set to true if you need to debug production builds
   },
   server: {
     host: true,
