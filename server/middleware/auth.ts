@@ -11,7 +11,7 @@ const REFRESH_TOKEN_EXPIRY = "7d";
  */
 export interface JWTPayload {
   role: "patient" | "responder" | "admin"; // Changed 'type' to 'role'
-  id: string; 
+  id: string;
   phone?: string;
   badgeId?: string;
   name?: string; // Added for Audit Logs
@@ -24,6 +24,16 @@ declare global {
       responder?: any;
     }
   }
+}
+
+// 1. New Export: Generate Access Token
+export function generateAccessToken(payload: JWTPayload): string {
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: ACCESS_TOKEN_EXPIRY });
+}
+
+// 2. New Export: Generate Refresh Token
+export function generateRefreshToken(payload: JWTPayload): string {
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: REFRESH_TOKEN_EXPIRY });
 }
 
 // Helper: Verify Token
@@ -39,8 +49,8 @@ export function verifyToken(token: string): JWTPayload | null {
  * Main Auth Middleware
  */
 export function authMiddleware(req: Request, res: Response, next: NextFunction) {
-  const token = req.cookies?.accessToken || 
-                req.headers.authorization?.split(" ")[1];
+  const token =
+    req.cookies?.accessToken || req.headers.authorization?.split(" ")[1];
 
   if (!token) {
     return res.status(401).json({ error: "Authentication required" });
@@ -59,7 +69,8 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
  * Patient Guard
  */
 export function patientAuthMiddleware(req: Request, res: Response, next: NextFunction) {
-  if (!req.user || req.user.role !== "patient") { // Use .role
+  if (!req.user || req.user.role !== "patient") {
+    // Use .role
     return res.status(403).json({ error: "Patient authentication required" });
   }
   next();
@@ -81,6 +92,14 @@ export async function responderAuthMiddleware(req: Request, res: Response, next:
     }
     req.responder = responder;
   }
-  
+
+  next();
+}
+
+// 3. New Export: Admin Guard
+export function adminAuthMiddleware(req: Request, res: Response, next: NextFunction) {
+  if (!req.user || req.user.role !== "admin") {
+    return res.status(403).json({ error: "Admin access required" });
+  }
   next();
 }
