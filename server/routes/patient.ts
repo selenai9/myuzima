@@ -1,8 +1,8 @@
 import { Router, Request, Response } from "express";
 import { z } from "zod";
 import { getDb } from "../db";
-import { emergencyProfiles, patients } from "../../drizzle/schema";
-import { eq, and } from "drizzle-orm";
+import { emergencyProfiles, patients, auditLogs } from "../../drizzle/schema";
+import { eq, and, desc } from "drizzle-orm";
 import { encryptData, decryptJSON } from "../services/crypto";
 import { generateEmergencyCardPDF, storeQRCode, regenerateQRCode } from "../services/qr";
 import { authMiddleware, patientAuthMiddleware, JWTPayload } from "../middleware/auth";
@@ -45,6 +45,7 @@ router.post("/consent", authMiddleware, patientAuthMiddleware, async (req: Reque
   try {
     const user = (req as any).user as JWTPayload;
     const db = await getDb();
+    if (!db) return res.status(500).json({ error: "Database not available" });
 
     await db
       .update(patients)
@@ -69,6 +70,7 @@ router.post("/profile", authMiddleware, patientAuthMiddleware, async (req: Reque
     const user = (req as any).user as JWTPayload;
     const profileData = emergencyProfileSchema.parse(req.body);
     const db = await getDb();
+    if (!db) return res.status(500).json({ error: "Database not available" });
 
     // 1. Verify Consent (Server-side Enforcement)
     const patientRecord = await db.select().from(patients).where(eq(patients.id, user.id)).limit(1);
@@ -113,6 +115,7 @@ router.put("/profile", authMiddleware, patientAuthMiddleware, async (req: Reques
     const user = (req as any).user as JWTPayload;
     const profileData = emergencyProfileSchema.parse(req.body);
     const db = await getDb();
+    if (!db) return res.status(500).json({ error: "Database not available" });
 
     await db.transaction(async (tx) => {
       // Update the data
@@ -148,6 +151,7 @@ router.get("/profile", authMiddleware, patientAuthMiddleware, async (req: Reques
   try {
     const user = (req as any).user as JWTPayload;
     const db = await getDb();
+    if (!db) return res.status(500).json({ error: "Database not available" });
 
     const [p] = await db.select().from(emergencyProfiles).where(eq(emergencyProfiles.patientId, user.id)).limit(1);
 
@@ -166,6 +170,70 @@ router.get("/profile", authMiddleware, patientAuthMiddleware, async (req: Reques
     });
   } catch (error) {
     res.status(500).json({ error: "Retrieval failed" });
+  }
+});
+
+/**
+ * GET /patient/qr
+ * Download emergency card as PDF
+ */
+router.get("/qr", authMiddleware, patientAuthMiddleware, async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user as JWTPayload;
+    const db = await getDb();
+    if (!db) return res.status(500).json({ error: "Database not available" });
+
+    const [profile] = await db
+      .select()
+      .from(emergencyProfiles)
+      .where(eq(emergencyProfiles.patientId, user.id))
+      .limit(1);
+
+    if (!profile) {
+      return res.status(404).json({ error: "Profile not found" });
+    }
+
+    const patient = await db
+      .select()
+      .from(patients)
+      .where(eq(patients.id, user.id))
+      .limit(1);
+
+    const pdfBuffer = await generateEmergencyCardPDF(profile.id, patient[0]?.phone || "N/A");
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename=myuzima-card-${user.id}.pdf`);
+    res.send(pdfBuffer);
+  } catch (error) {
+    console.error("[Patient] QR Download Error:", error);
+    res.status(500).json({ error: "Failed to generate PDF card" });
+  }
+});
+
+/**
+ * GET /patient/access-history
+ * Get audit logs for the current patient
+ */
+router.get("/access-history", authMiddleware, patientAuthMiddleware, async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user as JWTPayload;
+    const db = await getDb();
+    if (!db) return res.status(500).json({ error: "Database not available" });
+
+    const history = await db
+      .select()
+      .from(auditLogs)
+      .where(eq(auditLogs.patientId, user.id))
+      .orderBy(desc(auditLogs.timestamp))
+      .limit(20);
+
+    res.json({
+      success: true,
+      history,
+    });
+  } catch (error) {
+    console.error("[Patient] Access history error:", error);
+    res.status(500).json({ error: "Failed to fetch access history" });
   }
 });
 
