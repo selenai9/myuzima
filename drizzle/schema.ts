@@ -1,4 +1,4 @@
-import { mysqlEnum, mysqlTable, text, timestamp, varchar, boolean, index } from "drizzle-orm/mysql-core";
+import { mysqlEnum, mysqlTable, text, timestamp, varchar, boolean, index, int } from "drizzle-orm/mysql-core";
 import { relations } from "drizzle-orm";
 
 /**
@@ -132,3 +132,45 @@ export const qrCodeRelations = relations(qrCodes, ({ one }) => ({
     references: [emergencyProfiles.id],
   }),
 }));
+
+// ==========================================
+// NEW TABLES & TYPES
+// ==========================================
+
+// Users (OAuth/admin accounts)
+export const users = mysqlTable("users", {
+  id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => globalThis.crypto.randomUUID()),
+  openId: varchar("openId", { length: 255 }).notNull().unique(),
+  name: varchar("name", { length: 255 }),
+  email: varchar("email", { length: 255 }),
+  loginMethod: varchar("loginMethod", { length: 50 }),
+  role: varchar("role", { length: 50 }).default("user"),
+  lastSignedIn: timestamp("lastSignedIn"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+// OTPs
+export const otps = mysqlTable("otps", {
+  id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => globalThis.crypto.randomUUID()),
+  phone: varchar("phone", { length: 20 }).notNull(),
+  code: varchar("code", { length: 6 }).notNull(),
+  expiresAt: timestamp("expiresAt").notNull(),
+  used: boolean("used").default(false).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  phoneIdx: index("otp_phone_idx").on(table.phone),
+}));
+
+// OTP Attempts (brute-force tracking)
+export const otpAttempts = mysqlTable("otpAttempts", {
+  id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => globalThis.crypto.randomUUID()),
+  phone: varchar("phone", { length: 20 }).notNull().unique(),
+  attempts: int("attempts").default(0).notNull(),
+  lockedUntil: timestamp("lockedUntil"),
+});
+
+// Insert types
+export type InsertUser = typeof users.$inferInsert;
+export type InsertOTP = typeof otps.$inferInsert;
+export type InsertOTPAttempt = typeof otpAttempts.$inferInsert;
+export type InsertAuditLog = typeof auditLogs.$inferInsert;
