@@ -145,6 +145,14 @@ class APIClient {
   }
 
   /**
+   * Sync Offline Audit Logs
+   */
+  async syncOfflineAuditLogs(logs: any[]) {
+    const response = await this.client.post("/emergency/audit/log", { logs });
+    return response.data;
+  }
+
+  /**
    * Get Audit Logs (Admin)
    */
   async getAuditLogs(filters?: any) {
@@ -157,6 +165,30 @@ class APIClient {
    */
   async getAdminStats() {
     const response = await this.client.get("/admin/stats");
+    return response.data;
+  }
+
+  /**
+   * Get All Responders (Admin)
+   */
+  async getResponders() {
+    const response = await this.client.get("/admin/responders");
+    return response.data;
+  }
+
+  /**
+   * Get All Facilities (Admin)
+   */
+  async getFacilities() {
+    const response = await this.client.get("/admin/facilities");
+    return response.data;
+  }
+
+  /**
+   * Get Access History (Patient)
+   */
+  async getAccessHistory() {
+    const response = await this.client.get("/patient/access-history");
     return response.data;
   }
 
