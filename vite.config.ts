@@ -100,7 +100,7 @@ export default defineConfig({
     vitePluginManusDebugCollector(),
     VitePWA({
       strategies: 'injectManifest',
-      srcDir: 'client/public', // Points to where your sw.js is located
+      srcDir: 'client/public', // Points to where sw.js is located
       filename: 'sw.js',
       registerType: 'autoUpdate',
       injectRegister: 'auto',
