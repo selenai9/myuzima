@@ -8,20 +8,35 @@
     />
     <title>MyUZIMA Emergency QR Access System</title>
 
-    <meta name="theme-color" content="#4f46e5" />
-    <meta name="description" content="Life-critical medical information via QR codes." />
+    <!-- Healthcare teal theme color -->
+    <meta name="theme-color" content="#2EC4B6" />
+    <meta name="description" content="Life-critical medical information via QR codes. Emergency responders access encrypted patient profiles – even offline." />
     
     <link rel="manifest" href="/manifest.json" />
-
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />
     <link rel="apple-touch-icon" href="/logo.svg" />
+
+    <!-- Preload Inter font for faster rendering -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
   </head>
 
   <body>
     <noscript>
-      <div style="text-align: center; padding: 20px; font-family: sans-serif;">
-        <h1>JavaScript Required</h1>
-        <p>MyUZIMA requires JavaScript to display emergency medical data.</p>
+      <div style="text-align: center; padding: 40px 20px; font-family: 'Inter', sans-serif; background: #F7F9FB; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+        <div style="background: #E6FAF8; border-radius: 16px; padding: 12px; display: inline-block; margin-bottom: 16px;">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#2EC4B6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+          </svg>
+        </div>
+        <h1 style="color: #1A1A1A; font-size: 20px; font-weight: 700; margin: 0 0 8px 0;">JavaScript Required</h1>
+        <p style="color: #6B7280; font-size: 14px; max-width: 400px; margin: 0;">
+          MyUZIMA requires JavaScript to display emergency medical data securely.
+        </p>
       </div>
     </noscript>
 
