@@ -9,8 +9,13 @@
 
   /* Brand Colors */
   --color-healthcare-teal: #2EC4B6;
+  --color-healthcare-teal-light: #E0F4F7;
   --color-healthcare-deep: #1B9AAA;
   --color-healthcare-accent: #FF9F1C;
+  --color-healthcare-bg: #F7F9FB;
+  --color-healthcare-muted: #64748B;
+  --color-healthcare-text: #1A1A1A;
+  --color-healthcare-success: #10B981;
   
   /* Mapping for Tailwind Utilities */
   --color-background: var(--background);
@@ -49,7 +54,23 @@
 }
 
 @layer components {
-  /* This card style ensures the app looks 'designed' immediately */
+  /* --- Entry Animations --- */
+  .page-enter {
+    animation: slide-up 0.35s ease-out forwards;
+  }
+
+  @keyframes slide-up {
+    from { 
+      opacity: 0; 
+      transform: translateY(15px); 
+    }
+    to { 
+      opacity: 1; 
+      transform: translateY(0); 
+    }
+  }
+
+  /* --- Healthcare UI Components --- */
   .healthcare-card {
     @apply bg-card rounded-xl border border-border/60 transition-all duration-300;
     box-shadow: 
@@ -57,15 +78,25 @@
       0 2px 4px -2px rgba(0, 0, 0, 0.05);
   }
 
-  .healthcare-card:hover {
+  /* Version 2 Specific Interaction */
+  .healthcare-card:active {
+    transform: scale(0.99);
+  }
+
+  /* Hover state for dashboard/list cards (not applied to registration forms usually) */
+  .healthcare-card-hoverable:hover {
     @apply shadow-xl -translate-y-1;
     border-color: var(--primary);
   }
 
   .btn-healthcare {
-    @apply px-6 py-2.5 rounded-xl font-bold transition-all active:scale-95;
+    @apply flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl font-bold transition-all active:scale-95 disabled:opacity-70 disabled:pointer-events-none;
     background: var(--primary);
     color: white;
     box-shadow: 0 4px 14px 0 rgba(46, 196, 182, 0.39);
+  }
+
+  .healthcare-input {
+    @apply w-full rounded-xl border border-border bg-white px-4 py-3 text-sm transition-all focus:outline-none focus:ring-2 focus:ring-[var(--color-healthcare-teal)]/20 focus:border-[var(--color-healthcare-teal)] disabled:opacity-50;
   }
 }
