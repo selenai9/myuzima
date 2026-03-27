@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { AlertCircle, Home } from "lucide-react";
+import { AlertCircle, Home, ArrowLeft, Activity } from "lucide-react";
 import { useLocation } from "wouter";
 
 export default function NotFound() {
@@ -11,39 +11,60 @@ export default function NotFound() {
   };
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100">
-      <Card className="w-full max-w-lg mx-4 shadow-lg border-0 bg-white/80 backdrop-blur-sm">
-        <CardContent className="pt-8 pb-8 text-center">
+    <div className="min-h-screen w-full flex items-center justify-center bg-[var(--color-healthcare-bg)] p-4">
+      {/* Decorative background */}
+      <div className="absolute inset-0 -z-10 overflow-hidden">
+        <div className="absolute top-1/4 right-1/4 w-[400px] h-[400px] rounded-full bg-[var(--color-healthcare-teal)]/5 blur-3xl" />
+        <div className="absolute bottom-1/4 left-1/4 w-[300px] h-[300px] rounded-full bg-[var(--color-healthcare-accent)]/5 blur-3xl" />
+      </div>
+
+      <Card className="w-full max-w-md healthcare-card border-0 overflow-hidden page-enter">
+        <CardContent className="p-8 sm:p-10 text-center">
+          {/* Icon */}
           <div className="flex justify-center mb-6">
             <div className="relative">
-              <div className="absolute inset-0 bg-red-100 rounded-full animate-pulse" />
-              <AlertCircle className="relative h-16 w-16 text-red-500" />
+              <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-[var(--color-healthcare-accent)]/10">
+                <AlertCircle className="h-10 w-10 text-[var(--color-healthcare-accent)]" />
+              </div>
+              {/* Decorative pulse */}
+              <div className="absolute -inset-2 rounded-3xl bg-[var(--color-healthcare-accent)]/5 animate-pulse -z-10" />
             </div>
           </div>
 
-          <h1 className="text-4xl font-bold text-slate-900 mb-2">404</h1>
+          {/* Error code */}
+          <p className="text-6xl font-bold gradient-text mb-2">404</p>
 
-          <h2 className="text-xl font-semibold text-slate-700 mb-4">
+          <h2 className="text-xl font-bold text-[var(--color-healthcare-text)] mb-3">
             Page Not Found
           </h2>
 
-          <p className="text-slate-600 mb-8 leading-relaxed">
-            Sorry, the page you are looking for doesn't exist.
-            <br />
-            It may have been moved or deleted.
+          <p className="text-sm text-[var(--color-healthcare-muted)] mb-8 leading-relaxed max-w-xs mx-auto">
+            Sorry, the page you're looking for doesn't exist or may have been moved.
           </p>
 
-          <div
-            id="not-found-button-group"
-            className="flex flex-col sm:flex-row gap-3 justify-center"
-          >
-            <Button
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <button
               onClick={handleGoHome}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg transition-all duration-200 shadow-md hover:shadow-lg"
+              className="btn-healthcare px-6 py-3"
             >
-              <Home className="w-4 h-4 mr-2" />
+              <Home className="h-4 w-4" />
               Go Home
-            </Button>
+            </button>
+            <button
+              onClick={() => window.history.back()}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-border px-6 py-3 text-sm font-semibold text-[var(--color-healthcare-muted)] hover:bg-[var(--color-healthcare-bg)] transition-all duration-200"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Go Back
+            </button>
+          </div>
+
+          {/* Footer brand */}
+          <div className="flex items-center justify-center gap-2 mt-8 pt-6 border-t border-border/50">
+            <Activity className="h-3.5 w-3.5 text-[var(--color-healthcare-teal)]" />
+            <span className="text-[10px] font-semibold text-[var(--color-healthcare-muted)] uppercase tracking-wider">
+              MyUZIMA Emergency System
+            </span>
           </div>
         </CardContent>
       </Card>
