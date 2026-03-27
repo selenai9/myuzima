@@ -1,12 +1,11 @@
 import { mysqlEnum, mysqlTable, text, timestamp, varchar, boolean, index } from "drizzle-orm/mysql-core";
 import { relations } from "drizzle-orm";
-import * as crypto from "node:crypto";
 
 /**
  * Facilities table: Medical centers/hospitals
  */
 export const facilities = mysqlTable("facilities", {
-  id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => globalThis.crypto.randomUUID()),
   name: varchar("name", { length: 255 }).notNull(),
   location: text("location"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -16,7 +15,7 @@ export const facilities = mysqlTable("facilities", {
  * Responders table: Authorized medical staff (EMTs, Doctors, Nurses)
  */
 export const responders = mysqlTable("responders", {
-  id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => globalThis.crypto.randomUUID()),
   badgeId: varchar("badgeId", { length: 100 }).notNull().unique(),
   name: varchar("name", { length: 255 }).notNull(),
   role: mysqlEnum("role", ["EMT", "DOCTOR", "NURSE"]).notNull(),
@@ -33,7 +32,7 @@ export const responders = mysqlTable("responders", {
  * Patients table: Core identity.
  */
 export const patients = mysqlTable("patients", {
-  id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => globalThis.crypto.randomUUID()),
   phone: varchar("phone", { length: 20 }).notNull().unique(),
   phoneVerified: boolean("phoneVerified").default(false).notNull(),
   consentGiven: boolean("consentGiven").default(false).notNull(),
@@ -46,7 +45,7 @@ export const patients = mysqlTable("patients", {
  * EmergencyProfile table: Encrypted medical data.
  */
 export const emergencyProfiles = mysqlTable("emergencyProfiles", {
-  id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => globalThis.crypto.randomUUID()),
   patientId: varchar("patientId", { length: 64 }).notNull().unique(),
   bloodType: text("bloodType").notNull(), 
   allergies: text("allergies").notNull(), 
@@ -63,7 +62,7 @@ export const emergencyProfiles = mysqlTable("emergencyProfiles", {
  * AuditLogs table: Essential for Patient Access History.
  */
 export const auditLogs = mysqlTable("auditLogs", {
-  id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => globalThis.crypto.randomUUID()),
   patientId: varchar("patientId", { length: 64 }).notNull(),
   accessorId: varchar("accessorId", { length: 64 }).notNull(),
   accessorName: varchar("accessorName", { length: 255 }).notNull(),
@@ -79,7 +78,7 @@ export const auditLogs = mysqlTable("auditLogs", {
  * QRCode table: Token mapping for physical cards.
  */
 export const qrCodes = mysqlTable("qrCodes", {
-  id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  id: varchar("id", { length: 64 }).primaryKey().$defaultFn(() => globalThis.crypto.randomUUID()),
   profileId: varchar("profileId", { length: 64 }).notNull().unique(),
   encryptedPayload: text("encryptedPayload").notNull(), 
   isActive: boolean("isActive").default(true).notNull(),
