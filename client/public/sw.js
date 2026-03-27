@@ -1,20 +1,19 @@
-// MyUZIMA Service Worker - v1.0.5
-// Added: Version 3 IDB Support & Authenticated Batch Audit Sync
+// MyUZIMA Service Worker - v1.0.6
+// Finalized: Schema Alignment & Authenticated Batch Audit Sync
 
-const CACHE_NAME = "myuzima-v1.0.5";
+const CACHE_NAME = "myuzima-v1.0.6";
 const RUNTIME_CACHE = "myuzima-runtime-v1";
 const API_CACHE = "myuzima-api-v1";
 
+// NOTE: In production (Vite build), these paths usually live in /assets/
 const STATIC_ASSETS = [
   "/",
   "/index.html",
   "/manifest.json",
   "/favicon.ico",
-  "/src/main.tsx", 
-  "/src/App.tsx",
 ];
 
-// --- Install & Activate (Standard PWA Lifecycle) ---
+// --- Install & Activate ---
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
@@ -39,19 +38,25 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const { request } = event;
   const url = new URL(request.url);
+
+  // Skip cross-origin requests
   if (url.origin !== location.origin) return;
 
+  // API Requests: Network First, then Cache
   if (url.pathname.startsWith("/api/")) {
-    return event.respondWith(networkFirstStrategy(request));
+    event.respondWith(networkFirstStrategy(request));
+    return;
   }
 
+  // Navigation Requests: Always serve index.html (SPA support)
   if (request.mode === "navigate") {
     event.respondWith(fetch(request).catch(() => caches.match("/index.html")));
     return;
   }
 
+  // Static Assets: Cache First
   if (request.method === "GET" && url.pathname.match(/\.(js|css|woff2?|svg|png|jpg|jpeg|webp)$/i)) {
-    return event.respondWith(cacheFirstStrategy(request));
+    event.respondWith(cacheFirstStrategy(request));
   }
 });
 
@@ -66,7 +71,10 @@ async function networkFirstStrategy(request) {
     return response;
   } catch (error) {
     const cached = await caches.match(request);
-    return cached || new Response("Offline - Medical Data Unreachable", { status: 503 });
+    return cached || new Response(JSON.stringify({ error: "Offline - Data Unreachable" }), { 
+      status: 503, 
+      headers: { "Content-Type": "application/json" } 
+    });
   }
 }
 
@@ -83,19 +91,21 @@ async function cacheFirstStrategy(request) {
   }
 }
 
-// --- NEW: Authenticated Background Sync Logic ---
+// --- Background Sync & IndexedDB ---
 
 /**
- * Open IndexedDB (Must match Version 3 from idb.ts)
+ * Helper to wrap IDB requests in Promises
  */
+const promisify = (request) => new Promise((res, rej) => {
+  request.onsuccess = () => res(request.result);
+  request.onerror = () => rej(request.error);
+});
+
 function openDB() {
   return new Promise((resolve, reject) => {
-    // UPDATED: Version 3 to match the high-speed index version
-    const request = indexedDB.open("myuzima", 3); 
-
+    const request = indexedDB.open("myuzima", 3);
     request.onerror = () => reject(request.error);
     request.onsuccess = () => resolve(request.result);
-
     request.onupgradeneeded = (event) => {
       const db = event.target.result;
       if (!db.objectStoreNames.contains("profiles")) {
@@ -112,6 +122,9 @@ function openDB() {
   });
 }
 
+/**
+ * Background Sync Listener
+ */
 self.addEventListener("sync", (event) => {
   if (event.tag === "sync-audit-logs") {
     event.waitUntil(syncAuditLogs());
@@ -119,56 +132,78 @@ self.addEventListener("sync", (event) => {
 });
 
 /**
- * Authenticated Batch Sync
- * 1. Grabs token from 'metadata'
- * 2. Grabs unsynced logs from 'auditLogs'
- * 3. Sends to /api/emergency/audit/log
+ * Message Listener (Manual Sync)
+ */
+self.addEventListener("message", (event) => {
+  if (event.data.type === "SYNC_AUDIT_LOGS") {
+    event.waitUntil(
+      syncAuditLogs().then(() => {
+        if (event.ports && event.ports[0]) {
+          event.ports[0].postMessage({ success: true });
+        }
+      }).catch((err) => {
+        if (event.ports && event.ports[0]) {
+          event.ports[0].postMessage({ success: false, error: err.message });
+        }
+      })
+    );
+  }
+});
+
+/**
+ * Authenticated Batch Sync Logic
  */
 async function syncAuditLogs() {
-  const db = await openDB();
-  const tx = db.transaction(["auditLogs", "metadata"], "readwrite");
-  const logStore = tx.objectStore("auditLogs");
-  const metaStore = tx.objectStore("metadata");
-
-  // 1. Get Auth Token
-  const tokenRequest = metaStore.get("auth_token");
-  const tokenData = await new Promise((res) => (tokenRequest.onsuccess = () => res(tokenRequest.result)));
-  
-  if (!tokenData || !tokenData.value) {
-    console.warn("[SW] Sync aborted: No auth token found in IndexedDB");
-    return;
-  }
-
-  // 2. Get Unsynced Logs
-  const allLogsRequest = logStore.getAll();
-  const allLogs = await new Promise((res) => (allLogsRequest.onsuccess = () => res(allLogsRequest.result)));
-  const unsyncedLogs = allLogs.filter(log => !log.synced);
-
-  if (unsyncedLogs.length === 0) return;
-
+  let db;
   try {
-    // 3. POST to the Batch Route we created in emergency.ts
+    db = await openDB();
+    const tx = db.transaction(["auditLogs", "metadata"], "readonly");
+    const logStore = tx.objectStore("auditLogs");
+    const metaStore = tx.objectStore("metadata");
+
+    // 1. Get Auth Token (Bearer fallback)
+    const tokenData = await promisify(metaStore.get("auth_token"));
+    
+    // 2. Get All Logs and filter unsynced
+    const allLogs = await promisify(logStore.getAll());
+    const unsyncedLogs = allLogs.filter(log => !log.synced);
+
+    if (unsyncedLogs.length === 0) return;
+
+    // 3. Format logs to match Backend Zod Schema (emergency.ts)
+    const formattedLogs = unsyncedLogs.map(log => ({
+      patientId: log.patientId,
+      accessType: log.accessMethod || "OFFLINE_CACHE", // Syncing key naming
+      timestamp: log.timestamp || new Date().toISOString()
+    }));
+
+    // 4. POST to the Batch Route
     const response = await fetch("/api/emergency/audit/log", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${tokenData.value}`
+        ...(tokenData?.value && { "Authorization": `Bearer ${tokenData.value}` })
       },
-      body: JSON.stringify({ logs: unsyncedLogs })
+      credentials: 'include', // Ensures HttpOnly cookies are sent
+      body: JSON.stringify({ logs: formattedLogs })
     });
 
     if (response.ok) {
-      // 4. Mark as synced in IDB
-      const updateTx = db.transaction("auditLogs", "readwrite");
-      const updateStore = updateTx.objectStore("auditLogs");
+      // 5. Clean up IDB on success
+      const deleteTx = db.transaction("auditLogs", "readwrite");
+      const deleteStore = deleteTx.objectStore("auditLogs");
       
       for (const log of unsyncedLogs) {
-        log.synced = true;
-        updateStore.put(log);
+        // Delete to save space once confirmed on server
+        deleteStore.delete(log.id);
       }
-      console.log(`[SW] Successfully synced ${unsyncedLogs.length} logs`);
+      console.log(`[SW] Successfully synced ${unsyncedLogs.length} logs.`);
+    } else {
+      console.error(`[SW] Sync failed with status: ${response.status}`);
     }
   } catch (err) {
-    console.error("[SW] Sync failed:", err);
+    console.error("[SW] Background sync error:", err);
+  } finally {
+    if (db) db.close();
   }
 }
