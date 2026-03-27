@@ -108,8 +108,8 @@ export default defineConfig({
         name: 'MyUZIMA Emergency System',
         short_name: 'MyUZIMA',
         description: 'Emergency QR Access System',
-        theme_color: '#2EC4B6', // Updated to match your brand
-        background_color: '#F7F9FB', // Updated to match your brand
+        theme_color: '#2EC4B6',
+        background_color: '#F7F9FB',
         display: 'standalone',
         start_url: '/',
         icons: [
@@ -129,7 +129,7 @@ export default defineConfig({
     })
   ],
 
-  // CRITICAL ADDITION: Optimization for Lucide Icons
+  // Optimization: Prevents Vite from pre-bundling the entire Lucide library in dev mode
   optimizeDeps: {
     exclude: ['lucide-react'] 
   },
