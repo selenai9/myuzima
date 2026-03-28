@@ -16,10 +16,12 @@ import {
 } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
+import { useAuthContext } from "../App";
 
 export default function PatientRegister() {
   const { t } = useTranslation();
   const [, setLocation] = useLocation();
+  const { setAuthenticated } = useAuthContext();
   const [step, setStep] = useState<"phone" | "otp" | "consent">("phone");
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
@@ -81,6 +83,7 @@ export default function PatientRegister() {
 
     try {
       await apiClient.recordConsent();
+      setAuthenticated(true);
       toast.success(t("common.success"));
       setLocation("/patient/profile");
     } catch (err) {
