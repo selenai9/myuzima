@@ -162,8 +162,3 @@ export default defineConfig({
     },
   },
 });
-```
-
-Also update your **Render Build Command** to explicitly set NODE_ENV:
-```
-NODE_ENV=production pnpm install && NODE_ENV=production pnpm build
