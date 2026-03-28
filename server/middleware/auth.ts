@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { getResponderById } from "../db";
+import { isDemoMode, mockStore } from "../mockStore";
 
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-key";
 const ACCESS_TOKEN_EXPIRY = "15m";
@@ -83,15 +84,25 @@ export function patientAuthMiddleware(req: Request, res: Response, next: NextFun
  * 3. Unified DB check inside function scope
  */
 export const responderAuthMiddleware = async (
-  req: Request, 
-  res: Response, 
+  req: Request,
+  res: Response,
   next: NextFunction
 ) => {
   const user = req.user;
 
-  // Check role to prevent 403 bugs
   if (!user || user.role !== "responder") {
     return res.status(403).json({ error: "Responder access required" });
+  }
+
+  // ── DEMO MODE: responders live in mockStore, not the DB ──────────────────
+  if (isDemoMode()) {
+    const demoResponder = mockStore.respondersByBadge.get(user.badgeId || "");
+    // For the hardcoded demo JWT (id: "responder-demo-1"), always allow
+    if (user.id === "responder-demo-1" || (demoResponder && demoResponder.isActive)) {
+      req.responder = demoResponder || { id: user.id, name: user.name, isActive: true };
+      return next();
+    }
+    return res.status(403).json({ error: "Responder inactive" });
   }
 
   try {
