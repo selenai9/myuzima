@@ -2,8 +2,8 @@ import { Router, Request, Response } from "express";
 import { z } from "zod";
 import { getDb } from "../db";
 import { emergencyProfiles, auditLogs } from "../../drizzle/schema";
-import { eq, inArray } from "drizzle-orm";
-import { verifyQRPayloadToken, decryptJSON, generateQRPayloadToken } from "../services/crypto";
+import { eq } from "drizzle-orm";
+import { verifyQRPayloadToken, decryptJSON } from "../services/crypto";
 import { sendProfileAccessNotification } from "../services/otp";
 import { authMiddleware, responderAuthMiddleware } from "../middleware/auth";
 import { getPatientById } from "../db";
@@ -11,7 +11,8 @@ import { isDemoMode, mockStore } from "../mockStore";
 
 const router = Router();
 
-const scanSchema = z.object({ qrToken: z.string().min(1, "QR token required") });
+// Match the APIClient change: 'token' instead of 'qrToken'
+const scanSchema = z.object({ token: z.string().min(1, "QR token required") });
 
 const auditLogBatchSchema = z.object({
   logs: z.array(z.object({
@@ -25,13 +26,12 @@ const auditLogBatchSchema = z.object({
 router.post("/scan", authMiddleware, responderAuthMiddleware, async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
-    const { qrToken } = scanSchema.parse(req.body);
+    // Extract 'token' from request body
+    const { token: qrToken } = scanSchema.parse(req.body);
 
     if (isDemoMode()) {
-      // Find profile by demo QR token or try to decode
       let profile = null;
 
-      // Check if it's the demo token
       for (const [, qr] of mockStore.qrCodes) {
         if (qr.token === qrToken) {
           profile = mockStore.emergencyProfiles.get(qr.profileId);
@@ -39,7 +39,6 @@ router.post("/scan", authMiddleware, responderAuthMiddleware, async (req: Reques
         }
       }
 
-      // If not found by token, try the first available profile for demo purposes
       if (!profile && qrToken.startsWith("demo-")) {
         profile = mockStore.emergencyProfiles.get("profile-demo-1");
       }
@@ -50,10 +49,10 @@ router.post("/scan", authMiddleware, responderAuthMiddleware, async (req: Reques
 
       const decryptedData = {
         bloodType: profile.bloodType,
-        allergies: JSON.parse(profile.allergies) as any[],
-        medications: JSON.parse(profile.medications) as any[],
-        conditions: JSON.parse(profile.conditions) as string[],
-        contacts: JSON.parse(profile.contacts) as any[],
+        allergies: JSON.parse(profile.allergies || "[]"),
+        medications: JSON.parse(profile.medications || "[]"),
+        conditions: JSON.parse(profile.conditions || "[]"),
+        contacts: JSON.parse(profile.contacts || "[]"),
       };
 
       mockStore.addAuditLog({
@@ -136,10 +135,10 @@ router.get("/offline-sync", authMiddleware, responderAuthMiddleware, async (req:
             id: profile.id,
             patientId: profile.patientId,
             bloodType: profile.bloodType,
-            allergies: JSON.parse(profile.allergies),
-            medications: JSON.parse(profile.medications),
-            conditions: JSON.parse(profile.conditions),
-            contacts: JSON.parse(profile.contacts),
+            allergies: JSON.parse(profile.allergies || "[]"),
+            medications: JSON.parse(profile.medications || "[]"),
+            conditions: JSON.parse(profile.conditions || "[]"),
+            contacts: JSON.parse(profile.contacts || "[]"),
             dataAvailable: true,
             qrToken: qrEntry?.token || `demo-${profile.id}`,
             lastScanned: new Date(),
@@ -159,7 +158,7 @@ router.get("/offline-sync", authMiddleware, responderAuthMiddleware, async (req:
   }
 });
 
-// POST /emergency/audit/log — Batch sync offline audit logs
+// POST /emergency/audit/log
 router.post("/audit/log", authMiddleware, responderAuthMiddleware, async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
