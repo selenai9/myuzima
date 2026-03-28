@@ -1,3 +1,4 @@
+import QRCode from "qrcode";
 import { Router, Request, Response } from "express";
 import { z } from "zod";
 import { getDb } from "../db";
@@ -86,46 +87,6 @@ router.post("/profile", authMiddleware, patientAuthMiddleware, async (req: Reque
   }
 });
 
-// PUT /patient/profile
-router.put("/profile", authMiddleware, patientAuthMiddleware, async (req: Request, res: Response) => {
-  try {
-    const user = (req as any).user as JWTPayload;
-    const profileData = emergencyProfileSchema.parse(req.body);
-
-    if (isDemoMode()) {
-      mockStore.createOrUpdateProfile(user.id, {
-        bloodType: profileData.bloodType,
-        allergies: JSON.stringify(profileData.allergies),
-        medications: JSON.stringify(profileData.medications),
-        conditions: JSON.stringify(profileData.conditions),
-        contacts: JSON.stringify(profileData.contacts),
-      });
-      return res.json({ success: true, message: "Profile and QR updated (demo)" });
-    }
-
-    const db = await getDb();
-    if (!db) return res.status(500).json({ error: "Database not available" });
-
-    await db.transaction(async (tx) => {
-      await tx.update(emergencyProfiles).set({
-        bloodType: encryptData(profileData.bloodType),
-        allergies: encryptData(profileData.allergies),
-        medications: encryptData(profileData.medications),
-        conditions: encryptData(profileData.conditions),
-        contacts: encryptData(profileData.contacts),
-        updatedAt: new Date(),
-      }).where(eq(emergencyProfiles.patientId, user.id));
-
-      const [profile] = await db.select().from(emergencyProfiles).where(eq(emergencyProfiles.patientId, user.id)).limit(1);
-      if (profile) await regenerateQRCode(profile.id);
-    });
-
-    res.json({ success: true, message: "Profile and QR updated" });
-  } catch (error) {
-    res.status(400).json({ error: "Update failed" });
-  }
-});
-
 // GET /patient/profile
 router.get("/profile", authMiddleware, patientAuthMiddleware, async (req: Request, res: Response) => {
   try {
@@ -169,21 +130,22 @@ router.get("/profile", authMiddleware, patientAuthMiddleware, async (req: Reques
   }
 });
 
-// GET /patient/qr
+// CONSOLIDATED GET /patient/qr
 router.get("/qr", authMiddleware, patientAuthMiddleware, async (req: Request, res: Response) => {
   try {
     const user = (req as any).user as JWTPayload;
 
-    // --- DEMO MODE GUARD START ---
+    // --- DEMO MODE GUARD ---
     if (isDemoMode()) {
+      // In Demo Mode, we return a JSON token so the frontend can generate its own QR preview
       return res.json({
         success: true,
-        qrToken: `demo-qr-${Date.now()}`,
-        message: "Demo QR token generated",
+        qrToken: `demo-qr-${user.id}-${Date.now()}`,
+        message: "Demo QR token generated successfully",
       });
     }
-    // --- DEMO MODE GUARD END ---
 
+    // --- PRODUCTION MODE ---
     const db = await getDb();
     if (!db) return res.status(500).json({ error: "Database not available" });
 
@@ -206,7 +168,6 @@ router.get("/qr", authMiddleware, patientAuthMiddleware, async (req: Request, re
 router.get("/access-history", authMiddleware, patientAuthMiddleware, async (req: Request, res: Response) => {
   try {
     const user = (req as any).user as JWTPayload;
-
     if (isDemoMode()) {
       const history = mockStore.getAuditLogs({ patientId: user.id, limit: 20 });
       return res.json({ success: true, history });
