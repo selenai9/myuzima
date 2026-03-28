@@ -2,51 +2,89 @@ import { Router, Request, Response } from "express";
 import { z } from "zod";
 import { getDb } from "../db";
 import { emergencyProfiles, auditLogs } from "../../drizzle/schema";
-import { eq, inArray, and } from "drizzle-orm";
-import { verifyQRPayloadToken, decryptJSON } from "../services/crypto";
+import { eq, inArray } from "drizzle-orm";
+import { verifyQRPayloadToken, decryptJSON, generateQRPayloadToken } from "../services/crypto";
 import { sendProfileAccessNotification } from "../services/otp";
 import { authMiddleware, responderAuthMiddleware } from "../middleware/auth";
 import { getPatientById } from "../db";
+import { isDemoMode, mockStore } from "../mockStore";
 
 const router = Router();
 
-const scanSchema = z.object({
-  qrToken: z.string().min(1, "QR token required"),
-});
+const scanSchema = z.object({ qrToken: z.string().min(1, "QR token required") });
 
 const auditLogBatchSchema = z.object({
-  logs: z.array(
-    z.object({
-      patientId: z.string(),
-      accessType: z.string(), // Matches schema "QR_SCAN", "OFFLINE_CACHE"
-      timestamp: z.string(), 
-    })
-  ).min(1, "At least one log required"),
+  logs: z.array(z.object({
+    patientId: z.string(),
+    accessType: z.string(),
+    timestamp: z.string(),
+  })).min(1, "At least one log required"),
 });
 
-/**
- * POST /emergency/scan
- */
+// POST /emergency/scan
 router.post("/scan", authMiddleware, responderAuthMiddleware, async (req: Request, res: Response) => {
   try {
-    const user = (req as any).user; // From our updated JWTPayload
+    const user = (req as any).user;
     const { qrToken } = scanSchema.parse(req.body);
+
+    if (isDemoMode()) {
+      // Find profile by demo QR token or try to decode
+      let profile = null;
+
+      // Check if it's the demo token
+      for (const [, qr] of mockStore.qrCodes) {
+        if (qr.token === qrToken) {
+          profile = mockStore.emergencyProfiles.get(qr.profileId);
+          break;
+        }
+      }
+
+      // If not found by token, try the first available profile for demo purposes
+      if (!profile && qrToken.startsWith("demo-")) {
+        profile = mockStore.emergencyProfiles.get("profile-demo-1");
+      }
+
+      if (!profile || !profile.isActive) {
+        return res.status(404).json({ error: "Emergency profile not found or inactive" });
+      }
+
+      const decryptedData = {
+        bloodType: profile.bloodType,
+        allergies: JSON.parse(profile.allergies) as any[],
+        medications: JSON.parse(profile.medications) as any[],
+        conditions: JSON.parse(profile.conditions) as string[],
+        contacts: JSON.parse(profile.contacts) as any[],
+      };
+
+      mockStore.addAuditLog({
+        patientId: profile.patientId,
+        accessorId: user.id,
+        accessorName: user.name || "Authorized Responder",
+        action: "scan",
+        accessType: "QR_SCAN",
+      });
+
+      return res.json({
+        success: true,
+        profile: {
+          id: profile.id,
+          patientId: profile.patientId,
+          ...decryptedData,
+          dataAvailable: true,
+        },
+      });
+    }
+
     const db = await getDb();
     if (!db) throw new Error("Database not available");
 
     const { profileId } = verifyQRPayloadToken(qrToken);
 
-    const [profile] = await db
-      .select()
-      .from(emergencyProfiles)
-      .where(eq(emergencyProfiles.id, profileId))
-      .limit(1);
-
+    const [profile] = await db.select().from(emergencyProfiles).where(eq(emergencyProfiles.id, profileId)).limit(1);
     if (!profile || !profile.isActive) {
       return res.status(404).json({ error: "Emergency profile not found or inactive" });
     }
 
-    // 1. Decrypt Data
     const decryptedData = {
       bloodType: decryptJSON<string>(profile.bloodType),
       allergies: decryptJSON<any[]>(profile.allergies) || [],
@@ -55,7 +93,6 @@ router.post("/scan", authMiddleware, responderAuthMiddleware, async (req: Reques
       contacts: decryptJSON<any[]>(profile.contacts) || [],
     };
 
-    // 2. Log Audit (Strictly matching our schema)
     await db.insert(auditLogs).values({
       patientId: profile.patientId,
       accessorId: user.id,
@@ -64,7 +101,6 @@ router.post("/scan", authMiddleware, responderAuthMiddleware, async (req: Reques
       accessType: "QR_SCAN",
     });
 
-    // 3. Notify Patient
     const patient = await getPatientById(profile.patientId);
     if (patient?.phone) {
       sendProfileAccessNotification(patient.phone, user.name || "A responder").catch(() => {});
@@ -80,33 +116,84 @@ router.post("/scan", authMiddleware, responderAuthMiddleware, async (req: Reques
       },
     });
   } catch (error: any) {
-    res.status(400).json({ error: error.message?.includes("expired") ? "QR code expired" : "Scan failed" });
+    console.error("[Emergency] Scan error:", error);
+    if (error?.message?.includes("expired")) {
+      return res.status(401).json({ error: "QR code has expired", dataAvailable: false });
+    }
+    res.status(400).json({ error: "Invalid QR code", dataAvailable: false });
   }
 });
 
-/**
- * POST /emergency/audit/log (Syncing offline logs)
- */
+// GET /emergency/offline-sync
+router.get("/offline-sync", authMiddleware, responderAuthMiddleware, async (req: Request, res: Response) => {
+  try {
+    if (isDemoMode()) {
+      const profiles = [];
+      for (const profile of mockStore.emergencyProfiles.values()) {
+        if (profile.isActive) {
+          const qrEntry = mockStore.qrCodes.get(profile.id);
+          profiles.push({
+            id: profile.id,
+            patientId: profile.patientId,
+            bloodType: profile.bloodType,
+            allergies: JSON.parse(profile.allergies),
+            medications: JSON.parse(profile.medications),
+            conditions: JSON.parse(profile.conditions),
+            contacts: JSON.parse(profile.contacts),
+            dataAvailable: true,
+            qrToken: qrEntry?.token || `demo-${profile.id}`,
+            lastScanned: new Date(),
+          });
+        }
+      }
+      return res.json({ success: true, profiles });
+    }
+
+    const db = await getDb();
+    if (!db) throw new Error("Database not available");
+
+    const allProfiles = await db.select().from(emergencyProfiles).limit(50);
+    res.json({ success: true, profiles: allProfiles });
+  } catch (error) {
+    res.status(500).json({ error: "Sync failed" });
+  }
+});
+
+// POST /emergency/audit/log — Batch sync offline audit logs
 router.post("/audit/log", authMiddleware, responderAuthMiddleware, async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
     const { logs } = auditLogBatchSchema.parse(req.body);
+
+    if (isDemoMode()) {
+      logs.forEach((log) => {
+        mockStore.addAuditLog({
+          patientId: log.patientId,
+          accessorId: user.id,
+          accessorName: user.name || "Responder",
+          action: "scan",
+          accessType: log.accessType || "OFFLINE_CACHE",
+        });
+      });
+      return res.json({ success: true, synced: logs.length });
+    }
+
     const db = await getDb();
     if (!db) throw new Error("Database not available");
 
-    const logsToInsert = logs.map((log) => ({
-      patientId: log.patientId,
-      accessorId: user.id,
-      accessorName: user.name || "Authorized Responder",
-      action: "view" as const, // Offline views are logged as 'view'
-      accessType: log.accessType, // e.g., "OFFLINE_CACHE"
-      timestamp: new Date(log.timestamp),
-    }));
+    await db.insert(auditLogs).values(
+      logs.map((log) => ({
+        patientId: log.patientId,
+        accessorId: user.id,
+        accessorName: user.name || "Responder",
+        action: "scan" as const,
+        accessType: log.accessType,
+      }))
+    );
 
-    await db.insert(auditLogs).values(logsToInsert);
-    res.json({ success: true, count: logs.length });
+    res.json({ success: true, synced: logs.length });
   } catch (error) {
-    res.status(400).json({ error: "Sync failed" });
+    res.status(400).json({ error: "Audit log sync failed" });
   }
 });
 
