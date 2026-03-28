@@ -184,24 +184,20 @@ function AdminDashboard() {
     }
   };
 
-  const handleAddResponder = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError("");
-    setLoading(true);
-
-    try {
-      await apiClient.addResponder(newResponder);
-      toast.success(t("common.success"));
-      setNewResponder({ badgeId: "", name: "", role: "EMT", facilityId: "", pin: "" });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : t("errors.network_error");
-      setError(message);
-      toast.error(message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  const handleAddResponder = async (data: any) => {
+  setAddingResponder(true);  // or whatever your loading state is called
+  try {
+    await apiClient.addResponder(data);
+    toast.success("Responder added successfully");
+    setShowAddForm(false);   // close modal/form if applicable
+    await loadResponders();  // refresh the list
+  } catch (err: any) {
+    toast.error(err?.response?.data?.error || "Failed to add responder");
+  } finally {
+    setAddingResponder(false);  // ← this is the fix — was missing
+  }
+};
+  
   const handleDeactivateResponder = async (responderId: string) => {
     if (!confirm(t("admin.deactivate"))) return;
 
