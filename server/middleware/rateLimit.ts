@@ -1,4 +1,4 @@
-import rateLimit from "express-rate-limit";
+import rateLimit, { type Options } from "express-rate-limit";
 
 /**
  * Rate limiter for OTP registration (3 attempts per 30 minutes)
@@ -9,8 +9,8 @@ export const otpRegisterLimiter = rateLimit({
   message: "Too many registration attempts. Please try again later.",
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { ip: false }, // Disable IPv6 validation for custom keyGenerator
   keyGenerator: (req) => {
-    // Rate limit by phone number from request body
     return (req.body?.phone as string) || req.ip || "unknown";
   },
 });
@@ -24,8 +24,8 @@ export const otpVerifyLimiter = rateLimit({
   message: "Too many OTP verification attempts. Please try again later.",
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { ip: false },
   keyGenerator: (req) => {
-    // Rate limit by phone number
     return (req.body?.phone as string) || req.ip || "unknown";
   },
 });
@@ -39,8 +39,8 @@ export const responderLoginLimiter = rateLimit({
   message: "Too many login attempts. Please try again later.",
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { ip: false },
   keyGenerator: (req) => {
-    // Rate limit by badge ID
     return (req.body?.badgeId as string) || req.ip || "unknown";
   },
 });
