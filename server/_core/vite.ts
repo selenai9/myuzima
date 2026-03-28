@@ -34,7 +34,6 @@ export async function setupVite(app: Express, server: Server) {
         "../../client/index.html"
       );
 
-      // always reload the index.html file from disk incase it changes
       let template = await fs.promises.readFile(clientTemplate, "utf-8");
       template = template.replace(
         `src="/src/main.tsx"`,
@@ -50,29 +49,37 @@ export async function setupVite(app: Express, server: Server) {
 }
 
 export function serveStatic(app: Express) {
-  // In production on Render, the build files are usually in client/dist
-  // relative to the server folder.
-  const distPath = path.resolve(__dirname, "../../client/dist");
+  /**
+   * Based on the package.json build script: 
+   * "vite build --outDir dist/public"
+   * We point the static server to the dist/public directory.
+   */
+  const distPath = path.resolve(process.cwd(), "dist", "public");
 
   if (!fs.existsSync(distPath)) {
-    console.error(
-      `❌ Could not find the build directory: ${distPath}. 
-      Check if 'pnpm run build' completed successfully.`
-    );
-  } else {
-    console.log(`✅ Serving static files from: ${distPath}`);
+    console.error(`Directory not found: ${distPath}`);
+    
+    // Fallback check for alternative directory structures
+    const altPath = path.resolve(__dirname, "../../client/dist");
+    if (fs.existsSync(altPath)) {
+        app.use(express.static(altPath));
+        app.get("*", (_req, res) => {
+            res.sendFile(path.resolve(altPath, "index.html"));
+        });
+        return;
+    }
   }
 
-  // Serve static assets (js, css, images)
+  // Serve static assets from the primary distribution path
   app.use(express.static(distPath));
 
-  // Fallback: Send index.html for all other routes (handles React Router)
+  // Fallback: Support Client-Side Routing (React Router)
   app.get("*", (_req, res) => {
     const indexPath = path.resolve(distPath, "index.html");
     if (fs.existsSync(indexPath)) {
       res.sendFile(indexPath);
     } else {
-      res.status(404).send("Frontend build (index.html) not found. Check build logs.");
+      res.status(404).send("Production build (index.html) not found in dist/public.");
     }
   });
 }
