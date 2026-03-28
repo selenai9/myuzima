@@ -158,12 +158,3 @@ export default defineConfig({
     },
   },
 });
-```
-
----
-
-## Fix 2 — Render Build Command
-
-The lockfile mismatch means you need to tell pnpm to ignore the lockfile on Render. In your **Render dashboard → Build Command**, change it to:
-```
-pnpm install --no-frozen-lockfile && pnpm build
