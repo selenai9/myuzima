@@ -5,7 +5,7 @@ import { z } from "zod";
 import { getDb } from "../db";
 import { emergencyProfiles, patients, auditLogs } from "../../drizzle/schema";
 import { eq, desc } from "drizzle-orm";
-import { encryptData, decryptJSON } from "../services/crypto";
+import { encryptData, decryptJSON, generateQRPayloadToken } from "../services/crypto";
 import { storeQRCode, regenerateQRCode } from "../services/qr";
 import { authMiddleware, patientAuthMiddleware, JWTPayload } from "../middleware/auth";
 import { isDemoMode, mockStore } from "../mockStore";
@@ -55,6 +55,14 @@ router.post("/profile", authMiddleware, patientAuthMiddleware, async (req: Reque
         conditions: JSON.stringify(profileData.conditions),
         contacts: JSON.stringify(profileData.contacts),
       });
+
+      // FIX: Also store a demo QR code entry so scanning works
+      const demoToken = `demo-qr-token-${profile.id}`;
+      mockStore.qrCodes.set(profile.id, {
+        profileId: profile.id,
+        token: demoToken,
+      });
+
       return res.json({ success: true, profileId: profile.id });
     }
 
@@ -139,12 +147,22 @@ router.get("/qr", authMiddleware, patientAuthMiddleware, async (req: Request, re
     // ── Resolve profile & patient data ──────────────────────────────────────
     let profileId: string;
     let patientName: string;
+    let qrToken: string;
 
     if (isDemoMode()) {
       const profile = mockStore.profilesByPatient.get(user.id);
       if (!profile) return res.status(404).json({ error: "No profile found. Please create one first." });
       profileId = profile.id;
       patientName = user.id; // demo: use id as display name
+
+      // FIX: Use the demo QR token from mockStore so the scan endpoint can find it
+      const qrEntry = mockStore.qrCodes.get(profile.id);
+      qrToken = qrEntry?.token || `demo-qr-token-${profileId}`;
+
+      // Ensure the QR code entry exists in mockStore
+      if (!qrEntry) {
+        mockStore.qrCodes.set(profile.id, { profileId: profile.id, token: qrToken });
+      }
     } else {
       const db = await getDb();
       if (!db) return res.status(500).json({ error: "Database not available" });
@@ -164,10 +182,13 @@ router.get("/qr", authMiddleware, patientAuthMiddleware, async (req: Request, re
 
       profileId = profile.id;
       patientName = patient?.id ?? user.id;
+
+      // FIX: Use generateQRPayloadToken for proper AES-256-GCM encrypted token
+      // This token can be verified/decrypted by verifyQRPayloadToken() in emergency/scan
+      qrToken = generateQRPayloadToken(profileId);
     }
 
-    // ── Generate QR token & image ────────────────────────────────────────────
-    const qrToken = `myuzima-token-${profileId}`;
+    // ── Generate QR image from the proper token ─────────────────────────────
     const qrImageBuffer = await QRCode.toBuffer(qrToken, {
       width: 300,
       margin: 2,
