@@ -6,7 +6,8 @@ import { cacheProfile, getProfileByToken } from "@/lib/idb";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { AlertCircle, Camera, WifiOff, Heart, Pill, Activity, Phone } from "lucide-react";
+import { AlertCircle, Camera, WifiOff, Heart, Pill, Activity, Phone, Keyboard } from "lucide-react";
+import { Html5QrcodeScanner } from "html5-qrcode"; // <-- Added library
 
 interface EmergencyProfile {
   id: string;
@@ -28,8 +29,11 @@ export default function ResponderScan() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [online, setOnline] = useState(navigator.onLine);
+  
+  // UI States
   const [manualToken, setManualToken] = useState("");
   const [showInput, setShowInput] = useState(false);
+  const [showScanner, setShowScanner] = useState(false);
 
   useEffect(() => {
     const handleOnline = () => setOnline(true);
@@ -41,6 +45,32 @@ export default function ResponderScan() {
       window.removeEventListener("offline", handleOffline);
     };
   }, []);
+
+  // Initialize Camera Scanner
+  useEffect(() => {
+    if (showScanner) {
+      const scanner = new Html5QrcodeScanner(
+        "reader",
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        false
+      );
+
+      scanner.render(
+        (decodedText) => {
+          scanner.clear(); // Stop scanning on success
+          setShowScanner(false);
+          handleQRScan(decodedText);
+        },
+        (err) => {
+          // Ignore continuous scanning errors to prevent console spam
+        }
+      );
+
+      return () => {
+        scanner.clear().catch(console.error);
+      };
+    }
+  }, [showScanner]);
 
   const handleQRScan = async (qrToken: string) => {
     setLoading(true);
@@ -70,7 +100,7 @@ export default function ResponderScan() {
       }
       setStep("view");
     } catch (err: any) {
-      setError(err?.message || "Scan failed");
+      setError(err?.message || "Scan failed or token invalid. (403 Forbidden usually means the token doesn't exist)");
       toast.error(err?.message || "Scan failed");
     } finally {
       setLoading(false);
@@ -78,8 +108,15 @@ export default function ResponderScan() {
   };
 
   const handleManualSubmit = () => {
-    if (manualToken.trim()) {
-      handleQRScan(manualToken.trim());
+    let tokenToSubmit = manualToken.trim();
+    
+    // FIX: If user only types the numbers for the demo, automatically fix the formatting
+    if (/^\d+$/.test(tokenToSubmit)) {
+      tokenToSubmit = `demo-qr-${tokenToSubmit}`;
+    }
+
+    if (tokenToSubmit) {
+      handleQRScan(tokenToSubmit);
     }
   };
 
@@ -93,6 +130,7 @@ export default function ResponderScan() {
   if (step === "view" && profile) {
     return (
       <div className="min-h-screen bg-gray-50 p-4 space-y-4">
+        {/* ... (Your existing 'view' mode UI stays exactly the same) ... */}
         {!online && (
           <div className="bg-yellow-100 border border-yellow-400 text-yellow-800 p-3 rounded-lg flex items-center gap-2">
             <WifiOff className="w-5 h-5" />
@@ -106,14 +144,12 @@ export default function ResponderScan() {
           </div>
         )}
 
-        {/* Blood Type Badge */}
         <div className="flex justify-center">
           <Badge className={`${bloodTypeColors[profile.bloodType] || "bg-gray-500"} text-white text-4xl px-8 py-4 rounded-2xl`}>
             {profile.bloodType}
           </Badge>
         </div>
 
-        {/* Allergies */}
         <Card className="border-red-200">
           <CardHeader className="pb-2">
             <CardTitle className="text-red-600 flex items-center gap-2">
@@ -136,7 +172,6 @@ export default function ResponderScan() {
           </CardContent>
         </Card>
 
-        {/* Medications */}
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2">
@@ -157,7 +192,6 @@ export default function ResponderScan() {
           </CardContent>
         </Card>
 
-        {/* Conditions */}
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2">
@@ -177,7 +211,6 @@ export default function ResponderScan() {
           </CardContent>
         </Card>
 
-        {/* Emergency Contacts */}
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2">
@@ -198,7 +231,7 @@ export default function ResponderScan() {
           </CardContent>
         </Card>
 
-        <Button onClick={() => { setStep("scan"); setProfile(null); setManualToken(""); setShowInput(false); }} className="w-full">
+        <Button onClick={() => { setStep("scan"); setProfile(null); setManualToken(""); setShowInput(false); setShowScanner(false); }} className="w-full">
           {t("responder.scan_another")}
         </Button>
       </div>
@@ -216,26 +249,49 @@ export default function ResponderScan() {
         </CardHeader>
         <CardContent className="space-y-4">
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-lg">
+            <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-lg text-sm">
               {error}
             </div>
           )}
 
-          {!showInput ? (
-            <Button
-              onClick={() => setShowInput(true)}
-              disabled={loading}
-              className="w-full"
-              size="lg"
-            >
-              <Camera className="w-5 h-5 mr-2" />
-              {t("responder.scan_qr")}
-            </Button>
-          ) : (
+          {/* Camera Scanner View */}
+          {showScanner && (
+             <div className="space-y-4">
+               <div id="reader" className="w-full rounded-lg overflow-hidden"></div>
+               <Button variant="outline" onClick={() => setShowScanner(false)} className="w-full">Cancel Scan</Button>
+             </div>
+          )}
+
+          {/* Initial Button Menu */}
+          {!showInput && !showScanner && (
+            <div className="space-y-3">
+              <Button
+                onClick={() => setShowScanner(true)}
+                disabled={loading}
+                className="w-full"
+                size="lg"
+              >
+                <Camera className="w-5 h-5 mr-2" />
+                Scan QR Code Image
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setShowInput(true)}
+                disabled={loading}
+                className="w-full"
+              >
+                <Keyboard className="w-4 h-4 mr-2" />
+                Enter Token Manually
+              </Button>
+            </div>
+          )}
+
+          {/* Manual Input View */}
+          {showInput && !showScanner && (
             <div className="space-y-2">
               <input
                 className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Enter QR token"
+                placeholder="Enter QR token (e.g., 1774719612135)"
                 value={manualToken}
                 onChange={(e) => setManualToken(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleManualSubmit()}
@@ -262,7 +318,7 @@ export default function ResponderScan() {
             </div>
           )}
 
-          <p className="text-center text-sm text-gray-500">
+          <p className="text-center text-sm text-gray-500 mt-4">
             {t("responder.scan_instructions")}
           </p>
         </CardContent>
