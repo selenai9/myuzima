@@ -97,7 +97,6 @@ export const responderAuthMiddleware = (req: Request, res: Response, next: NextF
   }
 
   next();
-}
 
 // 3. New Export: Admin Guard
 export function adminAuthMiddleware(req: Request, res: Response, next: NextFunction) {
