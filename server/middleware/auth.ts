@@ -79,10 +79,13 @@ export function patientAuthMiddleware(req: Request, res: Response, next: NextFun
 /**
  * Responder Guard (Updated for Audit Logs)
  */
-export async function responderAuthMiddleware(req: Request, res: Response, next: NextFunction) {
-  if (!req.user || (req.user.role !== "responder" && req.user.role !== "admin")) {
+export const responderAuthMiddleware = (req: Request, res: Response, next: NextFunction) => {
+  const user = (req as any).user;
+  if (!user || user.type !== "responder") {
     return res.status(403).json({ error: "Responder access required" });
   }
+  next();
+};
 
   // Only perform DB check if it's a dedicated responder role
   if (req.user.role === "responder") {
