@@ -6,14 +6,10 @@ import path from "node:path";
 import { defineConfig, type Plugin, type ViteDevServer } from "vite";
 import { VitePWA } from 'vite-plugin-pwa';
 
-// =============================================================================
-// Manus Debug Collector - Vite Plugin (Development Only)
-// =============================================================================
-
 const PROJECT_ROOT = import.meta.dirname;
 const LOG_DIR = path.join(PROJECT_ROOT, ".manus-logs");
-const MAX_LOG_SIZE_BYTES = 1 * 1024 * 1024; 
-const TRIM_TARGET_BYTES = Math.floor(MAX_LOG_SIZE_BYTES * 0.6); 
+const MAX_LOG_SIZE_BYTES = 1 * 1024 * 1024;
+const TRIM_TARGET_BYTES = Math.floor(MAX_LOG_SIZE_BYTES * 0.6);
 
 type LogSource = "browserConsole" | "networkRequests" | "sessionReplay";
 
@@ -29,10 +25,9 @@ function trimLogFile(logPath: string, maxSize: number) {
     const lines = fs.readFileSync(logPath, "utf-8").split("\n");
     const keptLines: string[] = [];
     let keptBytes = 0;
-    const targetSize = TRIM_TARGET_BYTES;
     for (let i = lines.length - 1; i >= 0; i--) {
       const lineBytes = Buffer.byteLength(`${lines[i]}\n`, "utf-8");
-      if (keptBytes + lineBytes > targetSize) break;
+      if (keptBytes + lineBytes > TRIM_TARGET_BYTES) break;
       keptLines.unshift(lines[i]);
       keptBytes += lineBytes;
     }
@@ -86,10 +81,6 @@ function vitePluginManusDebugCollector(): Plugin {
   };
 }
 
-// =============================================================================
-// Main Vite Configuration
-// =============================================================================
-
 export default defineConfig({
   plugins: [
     react(),
@@ -97,9 +88,7 @@ export default defineConfig({
     jsxLocPlugin(),
     vitePluginManusDebugCollector(),
     VitePWA({
-      strategies: 'injectManifest',
-      srcDir: 'public', 
-      filename: 'sw.js',
+      strategies: 'generateSW',
       registerType: 'autoUpdate',
       injectRegister: 'auto',
       manifest: {
@@ -116,22 +105,19 @@ export default defineConfig({
           { src: '/logo.svg', sizes: '512x512', type: 'image/svg+xml', purpose: 'any' }
         ]
       },
-      injectManifest: {
+      workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
-        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024, 
+        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
+        navigateFallback: '/index.html',
       },
       devOptions: {
-        enabled: true, 
-        type: 'module'
+        enabled: false
       }
     })
   ],
-
-  // Optimization: Prevents Vite from pre-bundling the entire Lucide library in dev mode
   optimizeDeps: {
-    exclude: ['lucide-react'] 
+    exclude: ['lucide-react']
   },
-
   resolve: {
     alias: {
       "@": path.resolve(PROJECT_ROOT, "client", "src"),
@@ -146,7 +132,7 @@ export default defineConfig({
     outDir: path.resolve(PROJECT_ROOT, "dist/public"),
     emptyOutDir: true,
     reportCompressedSize: false,
-    sourcemap: false 
+    sourcemap: false
   },
   server: {
     host: true,
@@ -172,3 +158,12 @@ export default defineConfig({
     },
   },
 });
+```
+
+---
+
+## Fix 2 — Render Build Command
+
+The lockfile mismatch means you need to tell pnpm to ignore the lockfile on Render. In your **Render dashboard → Build Command**, change it to:
+```
+pnpm install --no-frozen-lockfile && pnpm build
