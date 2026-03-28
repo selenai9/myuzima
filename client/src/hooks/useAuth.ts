@@ -1,35 +1,45 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 
-export function useAuth() {
-  const [user, setUser] = useState<any>(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+interface AuthState {
+  loading: boolean;
+  isAuthenticated: boolean;
+  setAuthenticated: (val: boolean) => void;
+}
+
+export function useAuth(): AuthState {
   const [loading, setLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+    
     async function checkAuth() {
       try {
-        // Updated from /api/auth/status to /api/auth/me
         const response = await fetch("/api/auth/me");
-        
-        if (response.ok) {
-          const data = await response.json();
-          // If data exists, the user is logged in
-          setUser(data);
-          setIsAuthenticated(!!data); 
-        } else {
-          setUser(null);
-          setIsAuthenticated(false);
+        if (!cancelled) {
+          if (response.ok) {
+            setIsAuthenticated(true);
+          } else {
+            setIsAuthenticated(false);
+          }
         }
       } catch (error) {
-        setUser(null);
-        setIsAuthenticated(false);
+        if (!cancelled) setIsAuthenticated(false);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
 
     checkAuth();
+    
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  return { user, isAuthenticated, loading };
+  const setAuthenticated = useCallback((val: boolean) => {
+    setIsAuthenticated(val);
+  }, []);
+
+  return { loading, isAuthenticated, setAuthenticated };
 }
