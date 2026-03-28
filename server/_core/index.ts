@@ -1,5 +1,6 @@
-import "dotenv/config";
+﻿import "dotenv/config";
 import express from "express";
+import cors from "cors";
 import cookieParser from "cookie-parser";
 import { createServer } from "http";
 import net from "net";
@@ -36,6 +37,14 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 async function startServer() {
   const app = express();
   const server = createServer(app);
+
+  // CORS - Allow frontend connections from any origin (academic demo)
+  app.use(cors({
+    origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : true,
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  }));
 
   // Configure body parser
   app.use(express.json({ limit: "50mb" }));
@@ -77,7 +86,7 @@ async function startServer() {
     console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
   }
 
-  server.listen(port, () => {
+  server.listen(port, "0.0.0.0", () => {
     console.log(`\n🚀 MyUZIMA Server running on http://localhost:${port}/`);
     console.log(`\n--- API Routes Registered ---`);
     console.log(`[AUTH]      POST   /api/auth/register`);
@@ -85,15 +94,16 @@ async function startServer() {
     console.log(`[AUTH]      POST   /api/auth/refresh`);
     console.log(`[AUTH]      POST   /api/auth/logout`);
     console.log(`[AUTH]      GET    /api/auth/me`);
+    console.log(`[AUTH]      GET    /api/auth/status`);
     console.log(`[PATIENT]   POST   /api/patient/consent`);
     console.log(`[PATIENT]   GET    /api/patient/profile`);
     console.log(`[PATIENT]   POST   /api/patient/profile`);
-    console.log(`[PATIENT]   PUT    /api/patient/profile`);
-    console.log(`[PATIENT]   GET    /api/patient/qr`);
+    console.log(`[PATIENT]   PUT    /api/patient/profile`);    console.log(`[PATIENT]   GET    /api/patient/qr`);
+    console.log(`[PATIENT]   GET    /api/patient/access-history`);
     console.log(`[EMERGENCY] POST   /api/emergency/scan`);
-    console.log(`[EMERGENCY] GET    /api/emergency/offline-sync`);
-    console.log(`[ADMIN]     GET    /api/admin/responders`); // Added
-    console.log(`[ADMIN]     GET    /api/admin/facilities`); // Added
+    console.log(`[EMERGENCY] POST   /api/emergency/audit/log`);
+    console.log(`[ADMIN]     GET    /api/admin/responders`);
+    console.log(`[ADMIN]     GET    /api/admin/facilities`);
     console.log(`[ADMIN]     POST   /api/admin/responder`);
     console.log(`[ADMIN]     DELETE /api/admin/responder/:id`);
     console.log(`[ADMIN]     GET    /api/admin/audit-logs`);

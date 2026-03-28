@@ -1,4 +1,4 @@
-import crypto from "crypto";
+﻿import crypto from "crypto";
 
 /**
  * AES-256-GCM encryption service for sensitive patient medical data
@@ -10,27 +10,35 @@ import crypto from "crypto";
  */
 
 const ALGORITHM = "aes-256-gcm";
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
 const IV_LENGTH = 16; // 128 bits for GCM
 const AUTH_TAG_LENGTH = 16; // 128 bits for GCM
 
-if (!ENCRYPTION_KEY) {
-  throw new Error("ENCRYPTION_KEY environment variable is required for AES-256-GCM encryption");
-}
+// FIXED: Lazy initialization to prevent crash at module load when ENCRYPTION_KEY is not yet set
+let _keyBuffer: Buffer | null = null;
 
-// Validate key length
-const keyBuffer = Buffer.from(ENCRYPTION_KEY, "hex");
-if (keyBuffer.length !== 32) {
-  throw new Error(`ENCRYPTION_KEY must be 32 bytes (256 bits), got ${keyBuffer.length} bytes`);
+function getKeyBuffer(): Buffer {
+  if (_keyBuffer) return _keyBuffer;
+
+  const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
+  if (!ENCRYPTION_KEY) {
+    throw new Error("ENCRYPTION_KEY environment variable is required for AES-256-GCM encryption");
+  }
+
+  _keyBuffer = Buffer.from(ENCRYPTION_KEY, "hex");
+  if (_keyBuffer.length !== 32) {
+    throw new Error(`ENCRYPTION_KEY must be 32 bytes (256 bits), got ${_keyBuffer.length} bytes`);
+  }
+  return _keyBuffer;
 }
 
 /**
  * Encrypt sensitive data using AES-256-GCM
  * Returns: iv + authTag + ciphertext (all base64 encoded and concatenated)
- * Format: base64(iv):base64(authTag):base64(ciphertext)
+ * Format: base64(iv):base64(authTag):ciphertext(hex)
  */
 export function encryptData(plaintext: string | object): string {
   try {
+    const keyBuffer = getKeyBuffer();
     const data = typeof plaintext === "string" ? plaintext : JSON.stringify(plaintext);
     const iv = crypto.randomBytes(IV_LENGTH);
     const cipher = crypto.createCipheriv(ALGORITHM, keyBuffer, iv);
@@ -50,10 +58,11 @@ export function encryptData(plaintext: string | object): string {
 
 /**
  * Decrypt sensitive data using AES-256-GCM
- * Expects format: base64(iv):base64(authTag):base64(ciphertext)
+ * Expects format: base64(iv):base64(authTag):ciphertext(hex)
  */
 export function decryptData(encrypted: string): string {
   try {
+    const keyBuffer = getKeyBuffer();
     const parts = encrypted.split(":");
     if (parts.length !== 3) {
       throw new Error("Invalid encrypted data format: expected iv:authTag:ciphertext");

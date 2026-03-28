@@ -1,4 +1,4 @@
-import { mysqlEnum, mysqlTable, text, timestamp, varchar, boolean, index, int } from "drizzle-orm/mysql-core";
+﻿import { mysqlEnum, mysqlTable, text, timestamp, varchar, boolean, index, int } from "drizzle-orm/mysql-core";
 import { relations } from "drizzle-orm";
 
 /**
@@ -168,6 +168,16 @@ export const otpAttempts = mysqlTable("otpAttempts", {
   attempts: int("attempts").default(0).notNull(),
   lockedUntil: timestamp("lockedUntil"),
 });
+
+// Select types (for reading from DB)
+export type User = typeof users.$inferSelect;
+export type Patient = typeof patients.$inferSelect;
+export type EmergencyProfile = typeof emergencyProfiles.$inferSelect;
+export type Responder = typeof responders.$inferSelect;
+export type Facility = typeof facilities.$inferSelect;
+export type AuditLog = typeof auditLogs.$inferSelect;
+export type QRCode = typeof qrCodes.$inferSelect;
+export type OTP = typeof otps.$inferSelect;
 
 // Insert types
 export type InsertUser = typeof users.$inferInsert;

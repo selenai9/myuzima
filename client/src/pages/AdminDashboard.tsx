@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+﻿import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,7 +42,7 @@ interface AuditLog {
   deviceIp: string;
 }
 
-// ─── Reusable Stat Card ────────────────────────────────────
+// â”€â”€â”€ Reusable Stat Card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function StatCard({
   icon: Icon,
   label,
@@ -84,7 +84,7 @@ function StatCard({
   );
 }
 
-// ─── Role Badge ────────────────────────────────────────────
+// â”€â”€â”€ Role Badge â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function RoleBadge({ role }: { role: string }) {
   const config: Record<string, { bg: string; text: string }> = {
     EMT: { bg: "bg-amber-50", text: "text-amber-700" },
@@ -99,7 +99,7 @@ function RoleBadge({ role }: { role: string }) {
   );
 }
 
-// ─── Access Method Badge ────────────────────────────────────
+// â”€â”€â”€ Access Method Badge â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function AccessBadge({ method }: { method: string }) {
   const config: Record<string, { bg: string; text: string; icon: React.ElementType }> = {
     QR_SCAN: { bg: "bg-[var(--color-healthcare-teal-light)]", text: "text-[var(--color-healthcare-deep)]", icon: Activity },
@@ -115,10 +115,10 @@ function AccessBadge({ method }: { method: string }) {
   );
 }
 
-// ═══════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // MAIN COMPONENT
-// ═══════════════════════════════════════════════════════════
-export default function AdminDashboard() {
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+function AdminDashboard() {
   const { t } = useTranslation();
   const [tab, setTab] = useState<"responders" | "audit" | "stats">("responders");
   const [loading, setLoading] = useState(false);
@@ -227,7 +227,7 @@ export default function AdminDashboard() {
 
   return (
     <div className="min-h-screen bg-[var(--color-healthcare-bg)]">
-      {/* ── Page Header ──────────────────────────── */}
+      {/* â”€â”€ Page Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <div className="border-b border-border/50 bg-white/80 backdrop-blur-xl sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
@@ -253,7 +253,7 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          {/* ── Tab Navigation ────────────────────── */}
+          {/* â”€â”€ Tab Navigation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
           <div className="flex gap-1 -mb-px">
             {tabs.map(({ key, label, icon: Icon }) => (
               <button
@@ -276,7 +276,7 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* ── Main Content ─────────────────────────── */}
+      {/* â”€â”€ Main Content â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 page-enter">
         {error && (
           <Alert variant="destructive" className="mb-6 rounded-xl border-red-200 bg-red-50">
@@ -285,7 +285,7 @@ export default function AdminDashboard() {
           </Alert>
         )}
 
-        {/* ═══ RESPONDERS TAB ═══ */}
+        {/* â•â•â• RESPONDERS TAB â•â•â• */}
         {tab === "responders" && (
           <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
             {/* Add Responder Form */}
@@ -442,7 +442,7 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* ═══ AUDIT LOGS TAB ═══ */}
+        {/* â•â•â• AUDIT LOGS TAB â•â•â• */}
         {tab === "audit" && (
           <Card className="healthcare-card border-0">
             <CardHeader className="flex flex-row items-center justify-between p-6 pb-4">
@@ -504,12 +504,12 @@ export default function AdminDashboard() {
                               </td>
                               <td>
                                 <span className="text-xs font-mono bg-[var(--color-healthcare-bg)] px-2 py-1 rounded-md">
-                                  {log.responderId.slice(0, 8)}…
+                                  {log.responderId.slice(0, 8)}â€¦
                                 </span>
                               </td>
                               <td>
                                 <span className="text-xs font-mono bg-[var(--color-healthcare-bg)] px-2 py-1 rounded-md">
-                                  {log.patientId.slice(0, 8)}…
+                                  {log.patientId.slice(0, 8)}â€¦
                                 </span>
                               </td>
                               <td>
@@ -561,7 +561,7 @@ export default function AdminDashboard() {
           </Card>
         )}
 
-        {/* ═══ STATS TAB ═══ */}
+        {/* â•â•â• STATS TAB â•â•â• */}
         {tab === "stats" && (
           <div className="space-y-8">
             {/* Stats Cards */}
@@ -627,3 +627,5 @@ export default function AdminDashboard() {
     </div>
   );
 }
+
+export default AdminDashboard;
