@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
@@ -6,7 +6,7 @@ import { cacheProfile, getProfileByToken } from "@/lib/idb";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { AlertCircle, Camera, Flashlight, WifiOff, Heart, Pill, Activity, Phone } from "lucide-react";
+import { AlertCircle, Camera, WifiOff, Heart, Pill, Activity, Phone } from "lucide-react";
 
 interface EmergencyProfile {
   id: string;
@@ -28,6 +28,8 @@ export default function ResponderScan() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [online, setOnline] = useState(navigator.onLine);
+  const [manualToken, setManualToken] = useState("");
+  const [showInput, setShowInput] = useState(false);
 
   useEffect(() => {
     const handleOnline = () => setOnline(true);
@@ -75,10 +77,9 @@ export default function ResponderScan() {
     }
   };
 
-  const handleManualInput = () => {
-    const token = prompt("Enter QR token manually:");
-    if (token) {
-      handleQRScan(token);
+  const handleManualSubmit = () => {
+    if (manualToken.trim()) {
+      handleQRScan(manualToken.trim());
     }
   };
 
@@ -143,12 +144,16 @@ export default function ResponderScan() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {profile.medications.map((m, i) => (
-              <div key={i} className="border-b last:border-b-0 py-2">
-                <p className="font-semibold">{m.name}</p>
-                <p className="text-sm text-gray-600">{m.dosage} {m.frequency && `- ${m.frequency}`}</p>
-              </div>
-            ))}
+            {profile.medications.length > 0 ? (
+              profile.medications.map((m, i) => (
+                <div key={i} className="border-b last:border-b-0 py-2">
+                  <p className="font-semibold">{m.name}</p>
+                  <p className="text-sm text-gray-600">{m.dosage} {m.frequency && `- ${m.frequency}`}</p>
+                </div>
+              ))
+            ) : (
+              <p className="text-gray-500">No medications recorded</p>
+            )}
           </CardContent>
         </Card>
 
@@ -160,11 +165,15 @@ export default function ResponderScan() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex flex-wrap gap-2">
-              {profile.conditions.map((c, i) => (
-                <Badge key={i} variant="secondary">{c}</Badge>
-              ))}
-            </div>
+            {profile.conditions.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {profile.conditions.map((c, i) => (
+                  <Badge key={i} variant="secondary">{c}</Badge>
+                ))}
+              </div>
+            ) : (
+              <p className="text-gray-500">No conditions recorded</p>
+            )}
           </CardContent>
         </Card>
 
@@ -176,16 +185,20 @@ export default function ResponderScan() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {profile.contacts.map((c, i) => (
-              <a key={i} href={`tel:${c.phone}`} className="block border-b last:border-b-0 py-3">
-                <p className="font-semibold">{c.name} ({c.relation})</p>
-                <p className="text-blue-600">{c.phone}</p>
-              </a>
-            ))}
+            {profile.contacts.length > 0 ? (
+              profile.contacts.map((c, i) => (
+                <a key={i} href={`tel:${c.phone}`} className="block border-b last:border-b-0 py-3">
+                  <p className="font-semibold">{c.name} ({c.relation})</p>
+                  <p className="text-blue-600">{c.phone}</p>
+                </a>
+              ))
+            ) : (
+              <p className="text-gray-500">No contacts recorded</p>
+            )}
           </CardContent>
         </Card>
 
-        <Button onClick={() => { setStep("scan"); setProfile(null); }} className="w-full">
+        <Button onClick={() => { setStep("scan"); setProfile(null); setManualToken(""); setShowInput(false); }} className="w-full">
           {t("responder.scan_another")}
         </Button>
       </div>
@@ -207,10 +220,48 @@ export default function ResponderScan() {
               {error}
             </div>
           )}
-          <Button onClick={handleManualInput} disabled={loading} className="w-full" size="lg">
-            <Camera className="w-5 h-5 mr-2" />
-            {loading ? "Scanning..." : t("responder.scan_qr")}
-          </Button>
+
+          {!showInput ? (
+            <Button
+              onClick={() => setShowInput(true)}
+              disabled={loading}
+              className="w-full"
+              size="lg"
+            >
+              <Camera className="w-5 h-5 mr-2" />
+              {t("responder.scan_qr")}
+            </Button>
+          ) : (
+            <div className="space-y-2">
+              <input
+                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Enter QR token"
+                value={manualToken}
+                onChange={(e) => setManualToken(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleManualSubmit()}
+                autoFocus
+                disabled={loading}
+              />
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => { setShowInput(false); setManualToken(""); setError(""); }}
+                  disabled={loading}
+                  className="flex-1"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleManualSubmit}
+                  disabled={loading || !manualToken.trim()}
+                  className="flex-1"
+                >
+                  {loading ? "Scanning..." : "Submit"}
+                </Button>
+              </div>
+            </div>
+          )}
+
           <p className="text-center text-sm text-gray-500">
             {t("responder.scan_instructions")}
           </p>
