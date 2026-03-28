@@ -43,7 +43,6 @@ router.post("/profile", authMiddleware, patientAuthMiddleware, async (req: Reque
 
     if (isDemoMode()) {
       const patient = mockStore.patients.get(user.id);
-      // Allow demo patient to skip consent check
       if (patient && !patient.consentGiven && user.id !== "patient-demo-1") {
         return res.status(403).json({ error: "Legal consent required before storing medical data." });
       }
@@ -117,7 +116,7 @@ router.put("/profile", authMiddleware, patientAuthMiddleware, async (req: Reques
         updatedAt: new Date(),
       }).where(eq(emergencyProfiles.patientId, user.id));
 
-      const [profile] = await tx.select().from(emergencyProfiles).where(eq(emergencyProfiles.patientId, user.id)).limit(1);
+      const [profile] = await db.select().from(emergencyProfiles).where(eq(emergencyProfiles.patientId, user.id)).limit(1);
       if (profile) await regenerateQRCode(profile.id);
     });
 
@@ -175,15 +174,15 @@ router.get("/qr", authMiddleware, patientAuthMiddleware, async (req: Request, re
   try {
     const user = (req as any).user as JWTPayload;
 
+    // --- DEMO MODE GUARD START ---
     if (isDemoMode()) {
-      const profile = mockStore.profilesByPatient.get(user.id);
-      if (!profile) return res.status(404).json({ error: "Profile not found" });
-      const patient = mockStore.patients.get(user.id);
-      const pdfBuffer = await generateEmergencyCardPDF(profile.id, patient?.phone || "N/A");
-      res.setHeader("Content-Type", "application/pdf");
-      res.setHeader("Content-Disposition", `attachment; filename=myuzima-card-${user.id}.pdf`);
-      return res.send(pdfBuffer);
+      return res.json({
+        success: true,
+        qrToken: `demo-qr-${Date.now()}`,
+        message: "Demo QR token generated",
+      });
     }
+    // --- DEMO MODE GUARD END ---
 
     const db = await getDb();
     if (!db) return res.status(500).json({ error: "Database not available" });
@@ -198,8 +197,8 @@ router.get("/qr", authMiddleware, patientAuthMiddleware, async (req: Request, re
     res.setHeader("Content-Disposition", `attachment; filename=myuzima-card-${user.id}.pdf`);
     res.send(pdfBuffer);
   } catch (error) {
-    console.error("[Patient] QR Download Error:", error);
-    res.status(500).json({ error: "Failed to generate PDF card" });
+    console.error("[Patient] QR generation error:", error);
+    res.status(500).json({ error: "Failed to generate QR code" });
   }
 });
 
