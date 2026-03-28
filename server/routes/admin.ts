@@ -6,12 +6,10 @@ import { responders, facilities } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
 import { getAllAuditLogs, countAuditLogs } from "../services/audit";
 import { authMiddleware, adminAuthMiddleware } from "../middleware/auth";
+import { isDemoMode, mockStore } from "../mockStore";
 
 const router = Router();
 
-/**
- * Validation schemas
- */
 const createResponderSchema = z.object({
   badgeId: z.string().min(1, "Badge ID required"),
   name: z.string().min(1, "Name required"),
@@ -30,165 +28,163 @@ const auditLogFilterSchema = z.object({
   offset: z.preprocess((val) => Number(val), z.number().int().min(0).default(0)),
 });
 
-/**
- * GET /api/admin/responders
- */
+// GET /admin/responders
 router.get("/responders", authMiddleware, adminAuthMiddleware, async (req: Request, res: Response) => {
   try {
+    if (isDemoMode()) {
+      const allResponders = [...mockStore.responders.values()].map((r) => ({
+        id: r.id, badgeId: r.badgeId, name: r.name, role: r.role,
+        facilityId: r.facilityId, isActive: r.isActive, createdAt: r.createdAt,
+      }));
+      return res.json({ success: true, responders: allResponders });
+    }
     const db = await getDb();
     if (!db) throw new Error("Database not available");
-
-    // Proactive Security: Select all fields EXCEPT pinHash
     const allResponders = await db.select({
-      id: responders.id,
-      badgeId: responders.badgeId,
-      name: responders.name,
-      role: responders.role,
-      facilityId: responders.facilityId,
-      isActive: responders.isActive,
-      createdAt: responders.createdAt
+      id: responders.id, badgeId: responders.badgeId, name: responders.name,
+      role: responders.role, facilityId: responders.facilityId,
+      isActive: responders.isActive, createdAt: responders.createdAt,
     }).from(responders);
-
-    res.json({
-      success: true,
-      responders: allResponders,
-    });
+    res.json({ success: true, responders: allResponders });
   } catch (error) {
-    console.error("[Admin] Responder list error:", error);
     res.status(500).json({ error: "Failed to fetch responders" });
   }
 });
 
-/**
- * GET /api/admin/facilities
- */
+// GET /admin/facilities
 router.get("/facilities", authMiddleware, adminAuthMiddleware, async (req: Request, res: Response) => {
   try {
+    if (isDemoMode()) {
+      return res.json({ success: true, facilities: [...mockStore.facilities.values()] });
+    }
     const db = await getDb();
     if (!db) throw new Error("Database not available");
-
     const allFacilities = await db.select().from(facilities);
-
-    res.json({
-      success: true,
-      facilities: allFacilities,
-    });
+    res.json({ success: true, facilities: allFacilities });
   } catch (error) {
-    console.error("[Admin] Facility list error:", error);
     res.status(500).json({ error: "Failed to fetch facilities" });
   }
 });
 
-/**
- * POST /api/admin/responder
- */
+// POST /admin/responder
 router.post("/responder", authMiddleware, adminAuthMiddleware, async (req: Request, res: Response) => {
   try {
     const data = createResponderSchema.parse(req.body);
+
+    if (isDemoMode()) {
+      const pinHash = await bcryptjs.hash(data.pin, 10);
+      const newResponder = {
+        id: globalThis.crypto.randomUUID(),
+        badgeId: data.badgeId,
+        name: data.name,
+        role: data.role as "EMT" | "DOCTOR" | "NURSE",
+        facilityId: data.facilityId,
+        pinHash,
+        isActive: true,
+        createdAt: new Date(),
+      };
+      mockStore.responders.set(newResponder.id, newResponder);
+      mockStore.respondersByBadge.set(newResponder.badgeId, newResponder);
+      return res.json({ success: true, responderId: newResponder.id });
+    }
+
     const db = await getDb();
     if (!db) throw new Error("Database not available");
 
+    const existing = await db.select().from(responders).where(eq(responders.badgeId, data.badgeId)).limit(1);
+    if (existing.length > 0) return res.status(409).json({ error: "Badge ID already registered" });
+
     const pinHash = await bcryptjs.hash(data.pin, 10);
+    const [newResponder] = await db.insert(responders).values({
+      badgeId: data.badgeId, name: data.name, role: data.role,
+      facilityId: data.facilityId, pinHash,
+    }).$returningId();
 
-    await db.insert(responders).values({
-      badgeId: data.badgeId,
-      name: data.name,
-      role: data.role,
-      facilityId: data.facilityId,
-      pinHash,
-      isActive: true,
-    });
-
-    res.json({
-      success: true,
-      message: "Responder created successfully",
-      responder: {
-        badgeId: data.badgeId,
-        name: data.name,
-        role: data.role,
-      },
-    });
+    res.json({ success: true, responderId: newResponder.id });
   } catch (error) {
-    console.error("[Admin] Responder creation error:", error);
-    res.status(400).json({
-      error: error instanceof Error ? error.message : "Responder creation failed",
-    });
+    res.status(400).json({ error: "Failed to create responder" });
   }
 });
 
-/**
- * DELETE /api/admin/responder/:id
- */
+// DELETE /admin/responder/:id
 router.delete("/responder/:id", authMiddleware, adminAuthMiddleware, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+
+    if (isDemoMode()) {
+      const responder = mockStore.responders.get(id);
+      if (responder) {
+        responder.isActive = false;
+        return res.json({ success: true });
+      }
+      return res.status(404).json({ error: "Responder not found" });
+    }
+
     const db = await getDb();
     if (!db) throw new Error("Database not available");
-
     await db.update(responders).set({ isActive: false }).where(eq(responders.id, id));
-
-    res.json({
-      success: true,
-      message: "Responder deactivated successfully",
-    });
+    res.json({ success: true });
   } catch (error) {
-    console.error("[Admin] Responder deactivation error:", error);
-    res.status(400).json({
-      error: error instanceof Error ? error.message : "Deactivation failed",
-    });
+    res.status(400).json({ error: "Failed to deactivate responder" });
   }
 });
 
-/**
- * GET /api/admin/audit-logs
- */
+// GET /admin/audit-logs
 router.get("/audit-logs", authMiddleware, adminAuthMiddleware, async (req: Request, res: Response) => {
   try {
-    const parsed = auditLogFilterSchema.parse(req.query);
+    const filters = auditLogFilterSchema.parse(req.query);
+
+    if (isDemoMode()) {
+      const logs = mockStore.getAuditLogs({ patientId: filters.patientId, limit: filters.limit, offset: filters.offset });
+      return res.json({ success: true, logs, total: mockStore.auditLogs.length });
+    }
 
     const [logs, total] = await Promise.all([
-      getAllAuditLogs(parsed.limit, parsed.offset, parsed),
-      countAuditLogs(parsed)
+      getAllAuditLogs(filters),
+      countAuditLogs(filters),
+    ]);
+    res.json({ success: true, logs, total });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch audit logs" });
+  }
+});
+
+// GET /admin/stats
+router.get("/stats", authMiddleware, adminAuthMiddleware, async (req: Request, res: Response) => {
+  try {
+    if (isDemoMode()) {
+      return res.json({
+        success: true,
+        stats: {
+          totalPatients: mockStore.patients.size,
+          totalScans: mockStore.auditLogs.length,
+          activeResponders: [...mockStore.responders.values()].filter((r) => r.isActive).length,
+          systemUptime: process.uptime(),
+          demoMode: true,
+        },
+      });
+    }
+
+    const db = await getDb();
+    if (!db) throw new Error("Database not available");
+
+    const [patientCount, scanCount, responderCount] = await Promise.all([
+      db.select().from(require("../../drizzle/schema").patients),
+      db.select().from(require("../../drizzle/schema").auditLogs),
+      db.select().from(responders).where(eq(responders.isActive, true)),
     ]);
 
     res.json({
       success: true,
-      logs,
-      pagination: {
-        limit: parsed.limit,
-        offset: parsed.offset,
-        total,
-        totalPages: Math.ceil(total / parsed.limit),
-        hasMore: parsed.offset + parsed.limit < total,
-      },
-    });
-  } catch (error) {
-    console.error("[Admin] Audit log retrieval error:", error);
-    res.status(400).json({
-      error: error instanceof Error ? error.message : "Audit log retrieval failed",
-    });
-  }
-});
-
-/**
- * GET /api/admin/stats
- */
-router.get("/stats", authMiddleware, adminAuthMiddleware, async (req: Request, res: Response) => {
-  try {
-    const totalScans = await countAuditLogs();
-
-    res.json({
-      success: true,
       stats: {
-        totalScans,
-        timestamp: new Date(),
+        totalPatients: patientCount.length,
+        totalScans: scanCount.length,
+        activeResponders: responderCount.length,
+        systemUptime: process.uptime(),
       },
     });
   } catch (error) {
-    console.error("[Admin] Stats retrieval error:", error);
-    res.status(400).json({
-      error: error instanceof Error ? error.message : "Stats retrieval failed",
-    });
+    res.status(500).json({ error: "Failed to fetch stats" });
   }
 });
 
