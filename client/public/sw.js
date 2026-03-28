@@ -1,7 +1,14 @@
-﻿import { precacheAndRoute } from 'workbox-precaching';
-
-// The plugin looks for this EXACT string to inject your assets:
-precacheAndRoute(self.__WB_MANIFEST);
+// Simple service worker - no workbox import needed
+// VitePWA generateSW strategy will handle precaching automatically
 
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => event.waitUntil(clients.claim()));
+
+self.addEventListener('fetch', (event) => {
+  if (event.request.method !== 'GET') return;
+  event.respondWith(
+    caches.match(event.request).then((cached) => {
+      return cached || fetch(event.request);
+    })
+  );
+});
