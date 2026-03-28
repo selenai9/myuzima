@@ -9,7 +9,7 @@ const API_BASE_URL = "/api";
 // but we NEVER put the token string into localStorage or any JS-readable store.
 
 interface TokenPayload {
-  type: "patient" | "responder";
+  type: "patient" | "responder" | "admin";
   id: string;
   phone?: string;
   badgeId?: string;
@@ -56,6 +56,17 @@ class APIClient {
         return Promise.reject(error);
       }
     );
+  }
+
+  /**
+   * DEMO LOGIN — Bypass standard OTP/PIN for evaluators/teachers
+   * Sets appropriate HttpOnly cookies via the server
+   */
+  async demoLogin(role: "patient" | "responder" | "admin") {
+    const response = await this.client.post("/auth/demo-login", { role });
+    // C-06: Store indicator in IndexedDB so Service Worker knows we are authenticated
+    await storeAuthToken("cookie-session-active");
+    return response.data;
   }
 
   /**
