@@ -131,47 +131,104 @@ router.get("/profile", authMiddleware, patientAuthMiddleware, async (req: Reques
   }
 });
 
-// GET /patient/qr (Updated with PDF-Lib)
+// GET /patient/qr 
 router.get("/qr", authMiddleware, patientAuthMiddleware, async (req: Request, res: Response) => {
   try {
     const user = (req as any).user as JWTPayload;
 
+    // ── Resolve profile & patient data ──────────────────────────────────────
+    let profileId: string;
+    let patientName: string;
+
     if (isDemoMode()) {
-      return res.json({
-        success: true,
-        qrToken: `demo-qr-${user.id}-${Date.now()}`,
-        message: "Demo QR token generated successfully",
-      });
+      const profile = mockStore.profilesByPatient.get(user.id);
+      if (!profile) return res.status(404).json({ error: "No profile found. Please create one first." });
+      profileId = profile.id;
+      patientName = user.id; // demo: use id as display name
+    } else {
+      const db = await getDb();
+      if (!db) return res.status(500).json({ error: "Database not available" });
+
+      const [profile] = await db
+        .select()
+        .from(emergencyProfiles)
+        .where(eq(emergencyProfiles.patientId, user.id))
+        .limit(1);
+      if (!profile) return res.status(404).json({ error: "Profile not found" });
+
+      const [patient] = await db
+        .select()
+        .from(patients)
+        .where(eq(patients.id, user.id))
+        .limit(1);
+
+      profileId = profile.id;
+      patientName = patient?.id ?? user.id;
     }
 
-    const db = await getDb();
-    if (!db) return res.status(500).json({ error: "Database not available" });
+    // ── Generate QR token & image ────────────────────────────────────────────
+    const qrToken = `myuzima-token-${profileId}`;
+    const qrImageBuffer = await QRCode.toBuffer(qrToken, {
+      width: 300,
+      margin: 2,
+      errorCorrectionLevel: "H",
+    });
 
-    const [profile] = await db.select().from(emergencyProfiles).where(eq(emergencyProfiles.patientId, user.id)).limit(1);
-    if (!profile) return res.status(404).json({ error: "Profile not found" });
-
-    const [patient] = await db.select().from(patients).where(eq(patients.id, user.id)).limit(1);
-
-    // 1. Generate QR Image Buffer
-    // We fetch the token using your existing logic or a placeholder
-    const qrToken = `myuzima-token-${profile.id}`; 
-    const qrImageBuffer = await QRCode.toBuffer(qrToken, { width: 300 });
-
-    // 2. Build PDF Document
+    // ── Build PDF ────────────────────────────────────────────────────────────
     const pdfDoc = await PDFDocument.create();
     const page = pdfDoc.addPage([400, 500]);
     const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    const regularFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const qrImage = await pdfDoc.embedPng(qrImageBuffer);
 
-    page.drawText('MyUZIMA Emergency Card', { x: 50, y: 450, size: 18, font, color: rgb(0, 0, 0) });
-    page.drawText(`Patient: ${patient?.id || user.id}`, { x: 50, y: 420, size: 12, font });
-    page.drawImage(qrImage, { x: 50, y: 100, width: 300, height: 300 });
+    // Background
+    page.drawRectangle({
+      x: 0, y: 0, width: 400, height: 500,
+      color: rgb(0.97, 0.97, 0.97),
+    });
 
+    // Header bar
+    page.drawRectangle({
+      x: 0, y: 440, width: 400, height: 60,
+      color: rgb(0.07, 0.54, 0.47), // teal
+    });
+
+    // Title
+    page.drawText("MyUZIMA", {
+      x: 20, y: 468, size: 22, font, color: rgb(1, 1, 1),
+    });
+    page.drawText("Emergency Medical Card", {
+      x: 20, y: 450, size: 11, font: regularFont, color: rgb(0.8, 0.95, 0.9),
+    });
+
+    // Patient label
+    page.drawText("PATIENT ID", {
+      x: 20, y: 420, size: 9, font, color: rgb(0.5, 0.5, 0.5),
+    });
+    page.drawText(patientName, {
+      x: 20, y: 405, size: 12, font, color: rgb(0.1, 0.1, 0.1),
+    });
+
+    // QR code centred
+    page.drawImage(qrImage, { x: 50, y: 90, width: 300, height: 300 });
+
+    // Footer instruction
+    page.drawText("Scan this code in an emergency to access medical data", {
+      x: 20, y: 65, size: 9, font: regularFont, color: rgb(0.4, 0.4, 0.4),
+    });
+    page.drawText("myuzima.health", {
+      x: 20, y: 50, size: 9, font, color: rgb(0.07, 0.54, 0.47),
+    });
+
+    // ── Send PDF ─────────────────────────────────────────────────────────────
     const pdfBytes = await pdfDoc.save();
+    const buffer = Buffer.from(pdfBytes);
 
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename=myuzima-card-${user.id}.pdf`);
-    res.send(Buffer.from(pdfBytes));
+    res.setHeader("Content-Length", buffer.length.toString()); 
+    res.end(buffer); // use res.end(), not res.send(), to avoid Express re-encoding
+
   } catch (error) {
     console.error("[Patient] QR generation error:", error);
     res.status(500).json({ error: "Failed to generate QR code" });
