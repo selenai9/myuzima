@@ -1,4 +1,4 @@
-import axios, { AxiosInstance, AxiosError } from "axios";
+import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from "axios";
 import { storeAuthToken, clearAuthToken } from "./idb";
 
 const API_BASE_URL = "/api";
@@ -28,6 +28,18 @@ class APIClient {
       // C-03: withCredentials ensures the HttpOnly cookie is sent on every request
       withCredentials: true,
     });
+
+    // Added: Authorization interceptor to handle manual Bearer tokens from localStorage
+    this.client.interceptors.request.use(
+      (config: InternalAxiosRequestConfig) => {
+        const token = localStorage.getItem("accessToken");
+        if (token && config.headers) {
+          config.headers.Authorization = `Bearer ${token}`;
+        }
+        return config;
+      },
+      (error) => Promise.reject(error)
+    );
 
     // Response interceptor — on 401 try a silent cookie refresh, then give up
     this.client.interceptors.response.use(
@@ -139,10 +151,10 @@ class APIClient {
   }
 
   /**
-   * Scan QR Code
+   * Scan QR Code - Updated to use { token: qrToken }
    */
   async scanQRCode(qrToken: string) {
-    const response = await this.client.post("/emergency/scan", { qrToken });
+    const response = await this.client.post("/emergency/scan", { token: qrToken });
     return response.data;
   }
 
