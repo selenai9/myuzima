@@ -50,36 +50,50 @@ export async function setupVite(app: Express, server: Server) {
 
 export function serveStatic(app: Express) {
   /**
-   * Based on the package.json build script: 
-   * "vite build --outDir dist/public"
-   * We point the static server to the dist/public directory.
+   * DIRECTORY STRATEGY:
+   * 1. Primary: dist/public (Where your package.json build script points)
+   * 2. Fallback: client/dist (Standard Vite default)
    */
-  const distPath = path.resolve(process.cwd(), "dist", "public");
+  const rootDir = process.cwd();
+  const distPath = path.join(rootDir, "dist", "public");
+  const fallbackPath = path.join(rootDir, "client", "dist");
 
-  if (!fs.existsSync(distPath)) {
-    console.error(`Directory not found: ${distPath}`);
-    
-    // Fallback check for alternative directory structures
-    const altPath = path.resolve(__dirname, "../../client/dist");
-    if (fs.existsSync(altPath)) {
-        app.use(express.static(altPath));
-        app.get("*", (_req, res) => {
-            res.sendFile(path.resolve(altPath, "index.html"));
-        });
-        return;
-    }
+  let finalPath = distPath;
+
+  // Logic to determine which folder actually contains the build
+  if (fs.existsSync(path.join(distPath, "index.html"))) {
+    console.log(`[Static] Serving from primary path: ${distPath}`);
+    finalPath = distPath;
+  } else if (fs.existsSync(path.join(fallbackPath, "index.html"))) {
+    console.log(`[Static] Primary path empty. Using fallback: ${fallbackPath}`);
+    finalPath = fallbackPath;
+  } else {
+    console.error(`[Static] CRITICAL: No index.html found in ${distPath} or ${fallbackPath}`);
   }
 
-  // Serve static assets from the primary distribution path
-  app.use(express.static(distPath));
+  // Serve all static assets (JS, CSS, Images)
+  app.use(express.static(finalPath));
 
-  // Fallback: Support Client-Side Routing (React Router)
+  // Catch-all route for React Router / PWA Navigation
   app.get("*", (_req, res) => {
-    const indexPath = path.resolve(distPath, "index.html");
+    const indexPath = path.join(finalPath, "index.html");
+    
     if (fs.existsSync(indexPath)) {
       res.sendFile(indexPath);
     } else {
-      res.status(404).send("Production build (index.html) not found in dist/public.");
+      res.status(404).send(`
+        <html>
+          <body style="font-family: sans-serif; padding: 20px;">
+            <h3>Frontend Build Missing</h3>
+            <p>The server is running, but the UI files are not in the expected location.</p>
+            <p><b>Paths checked:</b></p>
+            <ul>
+              <li>${distPath}</li>
+              <li>${fallbackPath}</li>
+            </ul>
+          </body>
+        </html>
+      `);
     }
   });
 }
