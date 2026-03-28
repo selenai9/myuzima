@@ -88,6 +88,7 @@ export async function verifyOTP(phone: string, code: string): Promise<boolean> {
   }
 
   // UPDATED QUERY: Accepts the REAL generated code OR the Master Demo Code
+  // This logic is maintained so manual testing still works alongside your route-level mock.
   const validOTPs = await db
     .select()
     .from(otps)
@@ -119,8 +120,10 @@ export async function verifyOTP(phone: string, code: string): Promise<boolean> {
     throw new Error("Invalid or expired OTP code");
   }
 
+  // Burn the OTP (mark as used)
   await db.update(otps).set({ used: true }).where(eq(otps.id, validOTPs[0].id));
 
+  // Reset attempts on successful verification
   if (attemptRecord) {
     await db
       .update(otpAttempts)
