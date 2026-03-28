@@ -15,6 +15,7 @@ import {
   ArrowRight,
   QrCode,
   Activity,
+  UserCheck,
 } from "lucide-react";
 
 export default function Home() {
@@ -73,7 +74,7 @@ export default function Home() {
           <div className="absolute bottom-0 left-0 w-[400px] h-[400px] rounded-full bg-[var(--color-healthcare-deep)]/5 blur-3xl -translate-x-1/3 translate-y-1/3" />
         </div>
 
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-16 pb-12 sm:pt-20 sm:pb-16">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-16 pb-12 sm:pt-20 sm:pb-10">
           <div className="text-center max-w-3xl mx-auto page-enter">
             {/* Status badge */}
             <div className="inline-flex items-center gap-2 rounded-full bg-[var(--color-healthcare-teal-light)] px-4 py-1.5 mb-6">
@@ -119,6 +120,49 @@ export default function Home() {
       </section>
 
       {/* ──────────────────────────────────────────────
+          DEMO QUICK ACCESS SECTION (For Grading/Review)
+         ────────────────────────────────────────────── */}
+      <section className="max-w-4xl mx-auto px-4 mb-16">
+        <div className="rounded-2xl border-2 border-dashed border-[var(--color-healthcare-teal)]/30 bg-[var(--color-healthcare-teal)]/5 p-6 text-center">
+          <div className="flex items-center justify-center gap-2 mb-4">
+            <UserCheck className="h-5 w-5 text-[var(--color-healthcare-teal)]" />
+            <h3 className="text-sm font-bold text-[var(--color-healthcare-deep)] uppercase tracking-wider">
+              Evaluator Quick Access
+            </h3>
+          </div>
+          <div className="flex flex-wrap justify-center gap-4">
+            <Button 
+              onClick={() => setLocation("/patient/register")}
+              variant="secondary" 
+              className="bg-white hover:bg-white/80 border border-[var(--color-healthcare-teal)]/20 shadow-sm rounded-xl px-5"
+            >
+              <Heart className="h-4 w-4 mr-2 text-rose-500" />
+              Patient Demo
+            </Button>
+            <Button 
+              onClick={() => setLocation("/responder/scan")}
+              variant="secondary" 
+              className="bg-white hover:bg-white/80 border border-[var(--color-healthcare-teal)]/20 shadow-sm rounded-xl px-5"
+            >
+              <AlertTriangle className="h-4 w-4 mr-2 text-amber-500" />
+              Responder Demo
+            </Button>
+            <Button 
+              onClick={() => setLocation("/admin")}
+              variant="secondary" 
+              className="bg-white hover:bg-white/80 border border-[var(--color-healthcare-teal)]/20 shadow-sm rounded-xl px-5"
+            >
+              <Shield className="h-4 w-4 mr-2 text-slate-700" />
+              Admin Demo
+            </Button>
+          </div>
+          <p className="mt-3 text-[10px] text-[var(--color-healthcare-muted)] italic">
+            * Use these shortcuts to review system roles without manual registration.
+          </p>
+        </div>
+      </section>
+
+      {/* ──────────────────────────────────────────────
           THREE USER FLOW CARDS
          ────────────────────────────────────────────── */}
       <section className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pb-16">
@@ -160,7 +204,7 @@ export default function Home() {
               </ul>
               <Button
                 onClick={() => setLocation("/patient/register")}
-                className="w-full rounded-xl bg-[var(--color-healthcare-teal)] hover:bg-[var(--color-healthcare-deep)] text-white font-semibold shadow-md shadow-[var(--color-healthcare-teal)]/15 transition-all duration-200 hover:shadow-lg hover:shadow-[var(--color-healthcare-teal)]/25"
+                className="w-full rounded-xl bg-[var(--color-healthcare-teal)] hover:bg-[var(--color-healthcare-deep)] text-white font-semibold shadow-md shadow-[var(--color-healthcare-teal)]/15 transition-all duration-200"
               >
                 {t("patient.register")}
                 <ArrowRight className="h-4 w-4 ml-1" />
@@ -170,7 +214,6 @@ export default function Home() {
 
           {/* Responder Card */}
           <Card className="healthcare-card group border-0 overflow-hidden relative">
-            {/* Popular badge */}
             <div className="absolute top-4 right-4">
               <span className="badge-accent text-[10px]">CRITICAL</span>
             </div>
@@ -209,7 +252,7 @@ export default function Home() {
               </ul>
               <Button
                 onClick={() => setLocation("/responder/scan")}
-                className="w-full rounded-xl bg-[var(--color-healthcare-accent)] hover:bg-[var(--color-healthcare-accent-hover)] text-white font-semibold shadow-md shadow-[var(--color-healthcare-accent)]/15 transition-all duration-200 hover:shadow-lg hover:shadow-[var(--color-healthcare-accent)]/25"
+                className="w-full rounded-xl bg-[var(--color-healthcare-accent)] hover:bg-[var(--color-healthcare-accent-hover)] text-white font-semibold shadow-md shadow-[var(--color-healthcare-accent)]/15 transition-all duration-200"
               >
                 {t("responder.login")}
                 <ArrowRight className="h-4 w-4 ml-1" />
@@ -255,7 +298,7 @@ export default function Home() {
               <Button
                 onClick={() => setLocation("/admin")}
                 variant="outline"
-                className="w-full rounded-xl border-[var(--color-healthcare-deep)]/20 text-[var(--color-healthcare-deep)] font-semibold hover:bg-[var(--color-healthcare-deep)]/5 hover:border-[var(--color-healthcare-deep)]/40 transition-all duration-200"
+                className="w-full rounded-xl border-[var(--color-healthcare-deep)]/20 text-[var(--color-healthcare-deep)] font-semibold hover:bg-[var(--color-healthcare-deep)]/5 transition-all duration-200"
               >
                 {t("admin.title")} {t("common.access")}
                 <ArrowRight className="h-4 w-4 ml-1" />
@@ -366,11 +409,11 @@ export default function Home() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <span className="badge-teal text-[10px]">
+              <span className="badge-teal text-[10px] inline-flex items-center">
                 <Lock className="h-3 w-3 mr-1" />
                 End-to-End Encrypted
               </span>
-              <span className="badge-success text-[10px]">
+              <span className="badge-success text-[10px] inline-flex items-center">
                 <span className="relative flex h-1.5 w-1.5 mr-1">
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-75"></span>
                   <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
