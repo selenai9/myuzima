@@ -9,12 +9,19 @@ import PatientRegister from "./pages/PatientRegister";
 import PatientProfile from "./pages/PatientProfile";
 import ResponderScan from "./pages/ResponderScan";
 import AdminDashboard from "./pages/AdminDashboard";
-import { ComponentType } from "react";
+import { ComponentType, createContext, useContext } from "react";
 import "./i18n/config";
 
-// 1. Import new hook and loader
 import { useAuth } from "./hooks/useAuth";
 import { SecureLoader } from "./components/SecureLoader";
+
+// Auth Context
+export const AuthContext = createContext<{
+  isAuthenticated: boolean;
+  setAuthenticated: (val: boolean) => void;
+}>({ isAuthenticated: false, setAuthenticated: () => {} });
+
+export const useAuthContext = () => useContext(AuthContext);
 
 function ProtectedRoute({ component: Component, isAuthenticated, ...rest }: { component: ComponentType; isAuthenticated: boolean; path: string }) {
   return (
@@ -39,22 +46,20 @@ function Router({ isAuthenticated }: { isAuthenticated: boolean }) {
 }
 
 function App() {
-  // 2. Start the security check at the very top level
-  const { loading, isAuthenticated } = useAuth();
+  const { loading, isAuthenticated, setAuthenticated } = useAuth();
 
   return (
     <ErrorBoundary>
       <ThemeProvider defaultTheme="light">
         <TooltipProvider>
           <Toaster />
-          
-          {/* 3. The Security Guard logic */}
-          {loading ? (
-            <SecureLoader />
-          ) : (
-            <Router isAuthenticated={isAuthenticated} />
-          )}
-          
+          <AuthContext.Provider value={{ isAuthenticated, setAuthenticated }}>
+            {loading ? (
+              <SecureLoader />
+            ) : (
+              <Router isAuthenticated={isAuthenticated} />
+            )}
+          </AuthContext.Provider>
         </TooltipProvider>
       </ThemeProvider>
     </ErrorBoundary>
