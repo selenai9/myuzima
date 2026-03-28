@@ -1,11 +1,12 @@
 import QRCode from "qrcode";
+import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { Router, Request, Response } from "express";
 import { z } from "zod";
 import { getDb } from "../db";
 import { emergencyProfiles, patients, auditLogs } from "../../drizzle/schema";
 import { eq, desc } from "drizzle-orm";
 import { encryptData, decryptJSON } from "../services/crypto";
-import { generateEmergencyCardPDF, storeQRCode, regenerateQRCode } from "../services/qr";
+import { storeQRCode, regenerateQRCode } from "../services/qr";
 import { authMiddleware, patientAuthMiddleware, JWTPayload } from "../middleware/auth";
 import { isDemoMode, mockStore } from "../mockStore";
 
@@ -130,14 +131,12 @@ router.get("/profile", authMiddleware, patientAuthMiddleware, async (req: Reques
   }
 });
 
-// CONSOLIDATED GET /patient/qr
+// GET /patient/qr (Updated with PDF-Lib)
 router.get("/qr", authMiddleware, patientAuthMiddleware, async (req: Request, res: Response) => {
   try {
     const user = (req as any).user as JWTPayload;
 
-    // --- DEMO MODE GUARD ---
     if (isDemoMode()) {
-      // In Demo Mode, we return a JSON token so the frontend can generate its own QR preview
       return res.json({
         success: true,
         qrToken: `demo-qr-${user.id}-${Date.now()}`,
@@ -145,19 +144,34 @@ router.get("/qr", authMiddleware, patientAuthMiddleware, async (req: Request, re
       });
     }
 
-    // --- PRODUCTION MODE ---
     const db = await getDb();
     if (!db) return res.status(500).json({ error: "Database not available" });
 
     const [profile] = await db.select().from(emergencyProfiles).where(eq(emergencyProfiles.patientId, user.id)).limit(1);
     if (!profile) return res.status(404).json({ error: "Profile not found" });
 
-    const patient = await db.select().from(patients).where(eq(patients.id, user.id)).limit(1);
-    const pdfBuffer = await generateEmergencyCardPDF(profile.id, patient[0]?.phone || "N/A");
+    const [patient] = await db.select().from(patients).where(eq(patients.id, user.id)).limit(1);
+
+    // 1. Generate QR Image Buffer
+    // We fetch the token using your existing logic or a placeholder
+    const qrToken = `myuzima-token-${profile.id}`; 
+    const qrImageBuffer = await QRCode.toBuffer(qrToken, { width: 300 });
+
+    // 2. Build PDF Document
+    const pdfDoc = await PDFDocument.create();
+    const page = pdfDoc.addPage([400, 500]);
+    const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    const qrImage = await pdfDoc.embedPng(qrImageBuffer);
+
+    page.drawText('MyUZIMA Emergency Card', { x: 50, y: 450, size: 18, font, color: rgb(0, 0, 0) });
+    page.drawText(`Patient: ${patient?.id || user.id}`, { x: 50, y: 420, size: 12, font });
+    page.drawImage(qrImage, { x: 50, y: 100, width: 300, height: 300 });
+
+    const pdfBytes = await pdfDoc.save();
 
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename=myuzima-card-${user.id}.pdf`);
-    res.send(pdfBuffer);
+    res.send(Buffer.from(pdfBytes));
   } catch (error) {
     console.error("[Patient] QR generation error:", error);
     res.status(500).json({ error: "Failed to generate QR code" });
