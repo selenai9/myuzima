@@ -1,4 +1,3 @@
-import { jsxLocPlugin } from "@builder.io/vite-plugin-jsx-loc";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import fs from "node:fs";
@@ -81,12 +80,17 @@ function vitePluginManusDebugCollector(): Plugin {
   };
 }
 
+const isProduction = process.env.NODE_ENV === "production";
+
 export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
-    jsxLocPlugin(),
-    vitePluginManusDebugCollector(),
+    // Only load Manus dev tools in development — these break on Render
+    ...(!isProduction ? [
+      (await import("@builder.io/vite-plugin-jsx-loc")).jsxLocPlugin(),
+      vitePluginManusDebugCollector(),
+    ] : []),
     VitePWA({
       strategies: 'generateSW',
       registerType: 'autoUpdate',
@@ -158,3 +162,8 @@ export default defineConfig({
     },
   },
 });
+```
+
+Also update your **Render Build Command** to explicitly set NODE_ENV:
+```
+NODE_ENV=production pnpm install && NODE_ENV=production pnpm build
