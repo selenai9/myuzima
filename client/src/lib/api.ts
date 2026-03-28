@@ -73,9 +73,10 @@ class APIClient {
   /**
    * DEMO LOGIN — Bypass standard OTP/PIN for evaluators/teachers
    * Sets appropriate HttpOnly cookies via the server
+   * FIX: Route changed from "/auth/demo-login" to "/auth/demo" to match server
    */
   async demoLogin(role: "patient" | "responder" | "admin") {
-    const response = await this.client.post("/auth/demo-login", { role });
+    const response = await this.client.post("/auth/demo", { role });
     // C-06: Store indicator in IndexedDB so Service Worker knows we are authenticated
     await storeAuthToken("cookie-session-active");
     return response.data;
