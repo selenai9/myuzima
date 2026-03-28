@@ -32,6 +32,7 @@ router.post("/scan", authMiddleware, responderAuthMiddleware, async (req: Reques
     if (isDemoMode()) {
       let profile = null;
 
+      // FIX: Search through ALL qrCodes for matching token
       for (const [, qr] of mockStore.qrCodes) {
         if (qr.token === qrToken) {
           profile = mockStore.emergencyProfiles.get(qr.profileId);
@@ -39,8 +40,24 @@ router.post("/scan", authMiddleware, responderAuthMiddleware, async (req: Reques
         }
       }
 
+      // FIX: Also handle demo-prefixed tokens and plain profileId lookup
       if (!profile && qrToken.startsWith("demo-")) {
-        profile = mockStore.emergencyProfiles.get("profile-demo-1");
+        // Try extracting a profile ID from the token
+        // Token formats: "demo-qr-token-{profileId}" or "demo-{anything}"
+        const parts = qrToken.split("demo-qr-token-");
+        if (parts.length === 2 && parts[1]) {
+          profile = mockStore.emergencyProfiles.get(parts[1]);
+        }
+        // Fallback to the default demo profile
+        if (!profile) {
+          profile = mockStore.emergencyProfiles.get("profile-demo-1");
+        }
+      }
+
+      // FIX: Also try matching by iterating profiles if token starts with "myuzima-token-"
+      if (!profile && qrToken.startsWith("myuzima-token-")) {
+        const possibleProfileId = qrToken.replace("myuzima-token-", "");
+        profile = mockStore.emergencyProfiles.get(possibleProfileId);
       }
 
       if (!profile || !profile.isActive) {
@@ -74,6 +91,7 @@ router.post("/scan", authMiddleware, responderAuthMiddleware, async (req: Reques
       });
     }
 
+    // ── Production Mode: Decrypt token using AES-256-GCM ────────────────────
     const db = await getDb();
     if (!db) throw new Error("Database not available");
 
@@ -140,7 +158,7 @@ router.get("/offline-sync", authMiddleware, responderAuthMiddleware, async (req:
             conditions: JSON.parse(profile.conditions || "[]"),
             contacts: JSON.parse(profile.contacts || "[]"),
             dataAvailable: true,
-            qrToken: qrEntry?.token || `demo-${profile.id}`,
+            qrToken: qrEntry?.token || `demo-qr-token-${profile.id}`,
             lastScanned: new Date(),
           });
         }
