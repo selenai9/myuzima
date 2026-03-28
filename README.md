@@ -1,335 +1,336 @@
-# MyUZIMA Emergency QR Access System
+# MyUZIMA — Emergency QR Access System
 
-**Life-critical medical information at your fingertips.** MyUZIMA is a PWA (Progressive Web App) that enables emergency responders in Rwanda to access encrypted patient emergency profiles via QR codes, even without connectivity.
+> **Life-critical medical information at your fingertips.**  
+> A PWA enabling emergency responders in Rwanda to access encrypted patient profiles via QR codes — even without connectivity.
 
-## Features
+ **Live API:** [https://myuzima-api.onrender.com](https://myuzima-api.onrender.com)
 
-### 🏥 Patient Portal
-- **Phone-based OTP registration** — SMS verification via Africa's Talking
-- **Emergency profile creation** — Blood type, allergies, medications, conditions, emergency contacts
-- **Encrypted QR card** — Download PDF with AES-256-GCM encrypted QR code
-- **Access history** — View who accessed your profile and when
-- **Offline support** — Profile accessible even without internet
+---
 
-### 🚑 Responder App
-- **Badge authentication** — Secure login with badge ID + PIN
-- **QR scanning** — Real-time camera integration with torch control
-- **Critical safety features:**
-  - Large blood type badge (color-coded A/B/AB/O)
-  - Allergies in red warning boxes
-  - Medications with dosage info
-  - Chronic conditions list
-  - Emergency contacts with tap-to-call
-  - **DATA UNAVAILABLE banner** — Displays when decryption fails (critical safety feature)
-- **Offline mode** — IndexedDB cache of last 50 profiles
-- **Immutable audit logs** — Every access tracked with timestamp, responder ID, patient info
+## Table of Contents
 
-### 👨‍💼 Admin Dashboard
-- **Responder registry** — CRUD operations for responder management
-- **Audit log viewer** — Paginated logs with timestamp, responder, patient, access method, IP
-- **System statistics** — Patient count, total scans, system uptime
+1. [What It Does](#what-it-does)
+2. [Tech Stack](#tech-stack)
+3. [Prerequisites](#prerequisites)
+4. [Local Development Setup](#local-development-setup)
+5. [Environment Variables](#environment-variables)
+6. [Database Setup](#database-setup)
+7. [Running the App](#running-the-app)
+8. [Production Deployment (Docker)](#production-deployment-docker)
+9. [Deploying to Render](#deploying-to-render)
+10. [Project Structure](#project-structure)
+11. [API Reference](#api-reference)
+12. [Troubleshooting](#troubleshooting)
 
-### 📱 Feature Phone Support
-- **USSD interface** — *777# for patient registration and responder lookup
-- **SMS notifications** — Real-time alerts when profiles are accessed
-- **Offline-first** — Works on 3G networks and feature phones
+---
 
-### 🔒 Security & Privacy
-- **AES-256-GCM encryption** — All sensitive patient data encrypted at rest
-- **JWT authentication** — 15-minute access tokens, 7-day refresh tokens
-- **Rate limiting** — 3 OTP attempts → 30-minute lockout
-- **Immutable audit logs** — Comprehensive access tracking
-- **RBAC** — Role-based access control for responders
+## What It Does
 
-### 🌐 Internationalization
-- **Kinyarwanda** (primary language)
-- **English** (secondary language)
-- Language toggle in UI
+MyUZIMA has three user roles:
 
-### 📴 Offline-First PWA
-- **Service worker** — Network-first strategy with cache fallback
-- **IndexedDB caching** — Emergency profiles cached locally (max 50, LRU eviction)
-- **Background sync** — Queued audit logs synced when back online
-- **Push notifications** — Patient alerts when profiles are accessed
-- **Standalone app** — Install on home screen, works offline
+| Role | What they do |
+|------|-------------|
+| **Patient** | Registers via phone OTP, fills in emergency medical profile, downloads encrypted QR card |
+| **Responder (EMT)** | Logs in with badge ID + PIN, scans QR codes to view patient profiles |
+| **Admin** | Manages responders, views audit logs, monitors system stats |
 
-## Technology Stack
+Key features: AES-256-GCM encrypted patient data, offline-first PWA, Kinyarwanda & English UI, immutable audit logs.
 
-### Frontend
-- **React 19** — UI framework
-- **TypeScript** — Type safety
-- **Vite** — Build tool
-- **Tailwind CSS 4** — Styling
-- **shadcn/ui** — Component library
-- **html5-qrcode** — QR scanning
-- **react-i18next** — Internationalization
-- **idb** — IndexedDB wrapper
-- **Workbox** — Service worker
+---
 
-### Backend
-- **Node.js 22** — Runtime
-- **Express 4** — Web framework
-- **tRPC 11** — RPC framework
-- **Drizzle ORM** — Database layer
-- **MySQL 8** — Database
-- **JWT** — Authentication
-- **bcryptjs** — Password hashing
-- **qrcode** — QR generation
-- **pdf-lib** — PDF export
+## Tech Stack
 
-### DevOps
-- **Docker** — Containerization
-- **Docker Compose** — Orchestration
-- **Nginx** — Reverse proxy
-- **SSL/TLS** — Encryption in transit
+| Layer | Technology |
+|-------|-----------|
+| Frontend | React 19, TypeScript, Vite, Tailwind CSS 4, shadcn/ui |
+| Backend | Node.js 22, Express 4, tRPC 11 |
+| Database | MySQL 8, Drizzle ORM |
+| Auth | JWT (15-min access tokens, 7-day refresh) |
+| SMS/USSD | Africa's Talking |
+| Offline | Workbox service worker, IndexedDB |
+| DevOps | Docker, Docker Compose, Nginx |
 
-## Quick Start
+---
 
-### Development
+## Prerequisites
 
+Make sure you have all of these installed before you begin:
+
+| Tool | Version | Install |
+|------|---------|---------|
+| Node.js | 22+ | [nodejs.org](https://nodejs.org) |
+| pnpm | 9+ | `npm install -g pnpm` |
+| MySQL | 8+ | [mysql.com](https://dev.mysql.com/downloads/) or via Docker |
+| Docker | 20.10+ | [docker.com](https://www.docker.com/get-started/) |
+| Docker Compose | 2.0+ | Included with Docker Desktop |
+| Git | any | [git-scm.com](https://git-scm.com) |
+
+---
+
+## Local Development Setup
+
+Follow every step in order.
+
+### Step 1 — Clone the repository
 ```bash
-# Install dependencies
-pnpm install
-
-# Start dev server
-pnpm dev
-
-# Run tests
-pnpm test
-
-# Type check
-pnpm check
+git clone https://github.com/selenai9/myuzima.git
+cd myuzima
 ```
 
-### Production
-
+### Step 2 — Install dependencies
 ```bash
-# Using Docker Compose
-docker-compose up -d
+pnpm install
+```
 
-# View logs
-docker-compose logs -f api
+### Step 3 — Create your environment file
+```bash
+cp .env.example .env
+```
 
-# Database migration
+Then open `.env` and fill in your values (see [Environment Variables](#environment-variables) below).
+
+### Step 4 — Start a local MySQL database
+
+If you have MySQL installed locally:
+```bash
+mysql -u root -p
+CREATE DATABASE myuzima;
+CREATE USER 'myuzima'@'localhost' IDENTIFIED BY 'myuzima123';
+GRANT ALL PRIVILEGES ON myuzima.* TO 'myuzima'@'localhost';
+FLUSH PRIVILEGES;
+EXIT;
+```
+
+Or use Docker to spin up MySQL without installing it:
+```bash
+docker run -d \
+  --name myuzima-db \
+  -e MYSQL_ROOT_PASSWORD=root \
+  -e MYSQL_DATABASE=myuzima \
+  -e MYSQL_USER=myuzima \
+  -e MYSQL_PASSWORD=myuzima123 \
+  -p 3306:3306 \
+  mysql:8
+```
+
+### Step 5 — Push the database schema
+```bash
+pnpm db:push
+```
+
+This uses Drizzle ORM to create all the tables defined in `drizzle/` inside your database.
+
+### Step 6 — Start the development server
+```bash
+pnpm dev
+```
+
+This starts both the API server and the Vite frontend with hot reload. Open [http://localhost:5173](http://localhost:5173) in your browser.
+
+---
+
+To generate a secure `JWT_SECRET` and `ENCRYPTION_KEY`:
+```bash
+node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"  # JWT_SECRET
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"  # ENCRYPTION_KEY
+```
+
+---
+
+## Database Setup
+
+The database schema is managed by Drizzle ORM. All table definitions live in `drizzle/`.
+```bash
+# Push schema to the database (creates/updates tables)
+pnpm db:push
+
+# Open Drizzle Studio — a browser UI to inspect your database
+pnpm db:studio
+```
+
+Tables created:
+- `patients` — registered patient accounts
+- `emergencyProfiles` — AES-encrypted medical data
+- `qrCodes` — QR tokens with 30-day expiry
+- `responders` — EMT badge registry
+- `auditLogs` — immutable access records
+- `otps` / `otpAttempts` — OTP verification & rate limiting
+- `facilities` — healthcare facilities
+
+---
+
+## Running the App
+
+### Development mode (with hot reload)
+```bash
+pnpm dev
+```
+
+| Service | URL |
+|---------|-----|
+| Frontend | http://localhost:5173 |
+| API | http://localhost:3000 |
+| API health check | http://localhost:3000/api/health |
+
+### Other useful commands
+```bash
+pnpm build        # Build frontend + backend for production
+pnpm test         # Run unit tests
+pnpm check        # TypeScript type checking
+pnpm format       # Format code with Prettier
+pnpm db:studio    # Open Drizzle database UI
+```
+
+---
+
+## Production Deployment (Docker)
+
+This runs the full stack (MySQL + API + Nginx) in containers.
+
+### Step 1 — Set up your `.env`
+
+Make sure your `.env` is filled in with production values (strong secrets, production DB password, real Africa's Talking credentials, `NODE_ENV=production`).
+
+### Step 2 — Generate SSL certificates
+
+For a self-signed certificate (development/staging):
+```bash
+mkdir -p ssl
+openssl req -x509 -newkey rsa:4096 \
+  -keyout ssl/key.pem \
+  -out ssl/cert.pem \
+  -days 365 -nodes \
+  -subj "/CN=yourdomain.com"
+```
+
+For production with Let's Encrypt:
+```bash
+certbot certonly --standalone -d yourdomain.com
+cp /etc/letsencrypt/live/yourdomain.com/fullchain.pem ssl/cert.pem
+cp /etc/letsencrypt/live/yourdomain.com/privkey.pem ssl/key.pem
+```
+
+### Step 3 — Build and start all services
+```bash
+docker-compose up -d --build
+```
+
+### Step 4 — Run database migrations
+```bash
 docker-compose exec api npm run db:push
 ```
 
-See [DEPLOYMENT.md](./DEPLOYMENT.md) for detailed deployment instructions.
+### Step 5 — Verify everything is running
+```bash
+docker-compose ps            # Check all containers are "Up"
+docker-compose logs -f api   # Watch API logs
+curl http://localhost:3000/api/health  # Should return {"status":"ok"}
+```
+
+### Managing the stack
+```bash
+docker-compose stop          # Stop all services
+docker-compose down          # Stop and remove containers
+docker-compose restart api   # Restart just the API
+docker-compose logs nginx    # View Nginx logs
+```
+
+---
+
+## Deploying to Render
 
 ## Project Structure
-
 ```
 myuzima/
-├── client/                 # React PWA frontend
+├── client/                  # React PWA frontend
 │   ├── src/
-│   │   ├── pages/         # Page components
-│   │   ├── components/    # Reusable components
-│   │   ├── hooks/         # Custom hooks (useServiceWorker, etc.)
-│   │   ├── lib/           # Utilities (API client, IndexedDB, i18n)
-│   │   ├── i18n/          # Translations (rw.json, en.json)
-│   │   └── App.tsx        # Main app component
+│   │   ├── pages/           # Route-level page components
+│   │   ├── components/      # Reusable UI components
+│   │   ├── hooks/           # Custom React hooks
+│   │   ├── lib/             # API client, IndexedDB helpers, i18n setup
+│   │   └── i18n/            # Translations: rw.json (Kinyarwanda), en.json
 │   └── public/
-│       ├── sw.js          # Service worker
-│       └── manifest.json  # PWA manifest
-├── server/                # Express API backend
-│   ├── routes/            # API routes (auth, patient, emergency, admin, ussd)
-│   ├── services/          # Business logic (crypto, otp, qr, audit)
-│   ├── middleware/        # Auth, rate limiting
-│   └── db.ts              # Database queries
-├── drizzle/               # Database schema & migrations
-├── Dockerfile.api         # API container
-├── docker-compose.yml     # Full stack orchestration
-├── nginx.conf             # Reverse proxy config
-└── DEPLOYMENT.md          # Deployment guide
+│       ├── sw.js            # Service worker (offline support)
+│       └── manifest.json    # PWA manifest
+├── server/                  # Express API backend
+│   ├── routes/              # auth, patient, emergency, admin, ussd
+│   ├── services/            # crypto, otp, qr generation, audit logging
+│   ├── middleware/          # JWT auth, rate limiting
+│   └── db.ts                # Database queries (Drizzle ORM)
+├── drizzle/                 # Schema definitions and migrations
+├── shared/                  # Types shared between client and server
+├── Dockerfile.api           # Docker image for the API
+├── docker-compose.yml       # Full stack: MySQL + API + Nginx
+├── nginx.conf               # Nginx reverse proxy configuration
+├── drizzle.config.ts        # Drizzle ORM configuration
+└── DEPLOYMENT.md            # Extended deployment notes
 ```
 
-## API Endpoints
+---
+
+## API Reference
 
 ### Authentication
-- `POST /api/auth/register` — Patient registration with OTP
-- `POST /api/auth/verify-otp` — OTP verification
-- `POST /api/auth/refresh` — Refresh JWT token
-- `POST /api/auth/responder-login` — Responder badge login
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/auth/register` | Start patient registration (sends OTP) |
+| POST | `/api/auth/verify-otp` | Verify OTP and complete registration |
+| POST | `/api/auth/refresh` | Refresh JWT access token |
+| POST | `/api/auth/responder-login` | Responder login with badge ID + PIN |
 
 ### Patient
-- `POST /api/patient/profile` — Create emergency profile
-- `PUT /api/patient/profile` — Update emergency profile
-- `GET /api/patient/profile` — Get patient's profile
-- `GET /api/patient/qr-card` — Download PDF QR card
 
-### Emergency Access
-- `POST /api/emergency/scan` — QR scan endpoint (responder)
-- `GET /api/emergency/sync` — Offline sync (last 50 profiles)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/patient/profile` | Create emergency profile |
+| PUT | `/api/patient/profile` | Update emergency profile |
+| GET | `/api/patient/profile` | Get own profile |
+| GET | `/api/patient/qr-card` | Download QR card as PDF |
+
+### Emergency Access (Responder)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/emergency/scan` | Decrypt and retrieve patient profile via QR token |
+| GET | `/api/emergency/sync` | Sync last 50 profiles for offline use |
 
 ### Admin
-- `GET /api/admin/responders` — List responders
-- `POST /api/admin/responders` — Create responder
-- `DELETE /api/admin/responders/:id` — Deactivate responder
-- `GET /api/admin/audit-logs` — Get audit logs with filters
-- `GET /api/admin/stats` — System statistics
 
-### USSD
-- `POST /api/ussd/webhook` — Africa's Talking USSD webhook
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/admin/responders` | List all responders |
+| POST | `/api/admin/responders` | Create a new responder |
+| DELETE | `/api/admin/responders/:id` | Deactivate a responder |
+| GET | `/api/admin/audit-logs` | Paginated audit log viewer |
+| GET | `/api/admin/stats` | System stats (patient count, scans, uptime) |
 
-## Database Schema
-
-### Core Tables
-- `users` — Manus OAuth users (extended with responder role)
-- `patients` — Patient registration
-- `emergencyProfiles` — Encrypted patient medical data
-- `qrCodes` — QR code tokens and metadata
-- `responders` — Responder registry with badge ID
-- `facilities` — Healthcare facilities
-- `auditLogs` — Immutable access logs
-- `otps` — OTP storage and verification
-- `otpAttempts` — Rate limiting tracking
-
-## Security Considerations
-
-### Data Encryption
-- All sensitive patient data encrypted with AES-256-GCM before storage
-- QR payloads encrypted with 30-day expiration
-- Decryption only during authorized responder access
-
-### Authentication
-- JWT tokens with short expiration (15 min access, 7 day refresh)
-- Responder badge + PIN verification
-- Patient phone + OTP verification
-
-### Audit Trail
-- Every profile access logged immutably
-- Timestamp, responder ID, patient ID, access method, IP address
-- Accessible only to admins
-
-### Rate Limiting
-- Auth endpoints: 3 attempts per minute per IP
-- API endpoints: 10 requests per second per IP
-- USSD: No rate limit (Africa's Talking managed)
-
-## Offline Functionality
-
-### Service Worker
-- **Network-first strategy** for API calls (try network, fall back to cache)
-- **Cache-first strategy** for static assets
-- **Background sync** for queued audit logs
-- **Push notifications** for patient alerts
-
-### IndexedDB Cache
-- Stores last 50 emergency profiles (LRU eviction)
-- Stores queued audit logs for background sync
-- Automatic cleanup on storage quota exceeded
-
-### Responder Offline Mode
-- Access cached profiles without internet
-- Torch toggle for QR scanning
-- Offline indicator badge
-- Automatic sync when back online
-
-## Testing
-
-```bash
-# Unit tests
-pnpm test
-
-# Type checking
-pnpm check
-
-# Build
-pnpm build
-
-# Format
-pnpm format
-```
-
-## Deployment
-
-### Development
-```bash
-pnpm dev
-```
-
-### Production (Docker)
-```bash
-docker-compose up -d
-```
-
-### Production (Manual)
-```bash
-pnpm build
-NODE_ENV=production node dist/index.js
-```
-
-See [DEPLOYMENT.md](./DEPLOYMENT.md) for detailed instructions.
-
-## Environment Variables
-
-Required:
-- `DATABASE_URL` — MySQL connection string
-- `JWT_SECRET` — JWT signing secret
-- `ENCRYPTION_KEY` — AES-256 encryption key (32 bytes)
-- `VITE_APP_ID` — Manus OAuth app ID
-- `OWNER_OPEN_ID` — Owner's Manus OpenID
-- `OWNER_NAME` — Owner's name
-
-Optional:
-- `AFRICAS_TALKING_API_KEY` — Africa's Talking API key
-- `AFRICAS_TALKING_USERNAME` — Africa's Talking username
-- `VITE_VAPID_PUBLIC_KEY` — Push notification VAPID key
-
-## Monitoring
-
-### Health Check
-```bash
-curl http://localhost:3000/api/health
-```
-
-### Logs
-```bash
-# API logs
-docker-compose logs api
-
-# Nginx logs
-docker-compose logs nginx
-
-# Database logs
-docker-compose logs db
-```
-
-### Metrics
-- Nginx access/error logs
-- API response times
-- Database query performance
-- Service worker cache hit rate
+---
 
 ## Troubleshooting
 
-### Service Worker Not Registering
-- Check browser console for errors
-- Verify `public/sw.js` exists
-- Clear browser cache and reload
+**`pnpm install` fails**  
+Make sure you're on Node.js 22+. Run `node -v` to check.
 
-### Offline Mode Not Working
-- Check IndexedDB in DevTools
-- Verify service worker is active
-- Test with Chrome DevTools offline mode
+**Database connection refused**  
+Verify MySQL is running and your `DATABASE_URL` matches the host, port, username, and password exactly. For Docker, the host should be `db` (the service name), not `localhost`.
 
-### QR Scanning Issues
-- Check camera permissions
-- Verify QR code is valid
-- Try torch toggle for better lighting
+**`pnpm db:push` errors**  
+The database user needs full privileges on the `myuzima` database. Re-run the `GRANT ALL PRIVILEGES` command from Step 4.
 
-### Database Connection Error
-- Verify `DATABASE_URL` is correct
-- Check MySQL is running
-- Verify credentials
+**QR scanning doesn't work**  
+Camera access requires HTTPS or `localhost`. In production, ensure your SSL certificate is valid.
 
-## Contributing
+**Service worker not registering**  
+Open DevTools → Application → Service Workers. If it shows an error, clear site data and reload. Service workers only work on HTTPS or localhost.
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Run tests and type checks
-5. Submit a pull request
+**OTP not arriving**  
+Check your `AFRICAS_TALKING_API_KEY` and `AFRICAS_TALKING_USERNAME`. In sandbox mode, you can only send to numbers registered in your Africa's Talking sandbox.
+
+**Docker containers crashing**  
+Run `docker-compose logs api` to read error output. Most crashes on startup are caused by missing environment variables or the database not being ready yet — wait 10 seconds and run `docker-compose restart api`.
+
+---
 
 ## License
 
@@ -337,11 +338,10 @@ MIT
 
 ## Support
 
-For issues or questions:
-- Check [DEPLOYMENT.md](./DEPLOYMENT.md)
-- Review logs: `docker-compose logs -f`
-- Contact: support@myuzima.rw
+- Live app: [https://myuzima-api.onrender.com](https://myuzima-api.onrender.com)
+- Issues: [GitHub Issues](https://github.com/selenai9/myuzima/issues)
+- Email: support@myuzima.rw
 
-## Acknowledgments
+---
 
-Built for emergency medical response in Rwanda with offline-first architecture optimized for 3G networks and feature phones.
+*Built for emergency medical response in Rwanda — offline-first, optimized for 3G and feature phones.*
