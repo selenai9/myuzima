@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { getDb } from "../db";
 import { mockStore } from "../mockStore";
+import { eq } from "drizzle-orm";
+import { emergencyProfiles } from "../drizzle/schema";
 
 const router = Router();
 
@@ -11,26 +13,31 @@ router.get("/:id", async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Fallback to mock store if needed
     if (!id) {
       return res.status(400).json({ error: "Missing ID" });
     }
 
-    // Try DB first
-    const db = getDb();
+    const db = await getDb();
     let profile = null;
 
+    // DB lookup
     if (db) {
-      profile = await db.emergencyProfiles?.findUnique({
-        where: { id },
-      });
+      try {
+        const result = await db
+          .select()
+          .from(emergencyProfiles)
+          .where(eq(emergencyProfiles.id, id))
+          .limit(1);
+
+        profile = result[0] ?? null;
+      } catch (err) {
+        console.warn("DB lookup failed:", err);
+      }
     }
 
-    // Fallback to mock store if DB fails or empty
+    // Mock fallback (Map-safe)
     if (!profile) {
-      profile = mockStore.emergencyProfiles?.find(
-        (p: any) => p.id === id
-      );
+      profile = mockStore.emergencyProfiles.get(id);
     }
 
     if (!profile) {
@@ -45,7 +52,7 @@ router.get("/:id", async (req, res) => {
 });
 
 /**
- * POST emergency access (simplified safe version)
+ * POST emergency access
  */
 router.post("/access", async (req, res) => {
   try {
@@ -55,34 +62,40 @@ router.post("/access", async (req, res) => {
       return res.status(400).json({ error: "Missing ID" });
     }
 
-    const db = getDb();
+    const db = await getDb();
     let profile = null;
 
+    // DB lookup
     if (db) {
-      profile = await db.emergencyProfiles?.findUnique({
-        where: { id },
-      });
+      try {
+        const result = await db
+          .select()
+          .from(emergencyProfiles)
+          .where(eq(emergencyProfiles.id, id))
+          .limit(1);
+
+        profile = result[0] ?? null;
+      } catch (err) {
+        console.warn("DB lookup failed:", err);
+      }
     }
 
+    // Mock fallback
     if (!profile) {
-      profile = mockStore.emergencyProfiles?.find(
-        (p: any) => p.id === id
-      );
+      profile = mockStore.emergencyProfiles.get(id);
     }
 
     if (!profile) {
       return res.status(404).json({ error: "Profile not found" });
     }
 
-    // Optional audit log (safe fallback)
+    // Optional audit log (safe)
     try {
-      if (db?.auditLogs) {
-        await db.auditLogs.create({
-          data: {
-            action: "EMERGENCY_ACCESS",
-            targetId: id,
-            timestamp: new Date(),
-          },
+      if (db) {
+        await db.insert("auditLogs").values({
+          action: "EMERGENCY_ACCESS",
+          targetId: id,
+          timestamp: new Date(),
         });
       }
     } catch (err) {
@@ -100,36 +113,62 @@ router.post("/access", async (req, res) => {
 });
 
 /**
- * POST emergency scan
+ * POST emergency scan (QR)
  */
 router.post("/scan", async (req, res) => {
   try {
-    console.log("SCAN BODY:", req.body); // 👈 helps debugging
+    console.log("SCAN BODY:", req.body);
 
-    const { token, qrData, id } = req.body;
+    const { token, id, qrData } = req.body;
+    const lookupValue = id || token || qrData;
 
-    // Accept whatever the frontend sends
-    const lookupId = id || token || qrData;
-
-    if (!lookupId) {
+    if (!lookupValue) {
       return res.status(400).json({ error: "Invalid QR payload" });
     }
 
-    const db = getDb();
+    const db = await getDb();
     let profile = null;
 
-    if (db) {
-      profile = await db.emergencyProfiles?.findUnique({
-        where: { id: lookupId },
-      });
+    // =========================
+    //  DEMO MODE (Map-based QR lookup)
+    // =========================
+    if (typeof lookupValue === "string" && lookupValue.startsWith("demo-qr-token-")) {
+      let matchedProfileId: string | null = null;
+
+      for (const [, qr] of mockStore.qrCodes.entries()) {
+        if (qr.token === lookupValue) {
+          matchedProfileId = qr.profileId;
+          break;
+        }
+      }
+
+      if (!matchedProfileId) {
+        return res.status(404).json({ error: "Invalid demo QR token" });
+      }
+
+      profile = mockStore.emergencyProfiles.get(matchedProfileId);
     }
 
-    if (!profile) {
-      profile = mockStore.emergencyProfiles?.find(
-        (p: any) => p.id === lookupId
-      );
+    // =========================
+    //  REAL DATABASE MODE
+    // =========================
+    else if (db) {
+      try {
+        const result = await db
+          .select()
+          .from(emergencyProfiles)
+          .where(eq(emergencyProfiles.id, lookupValue))
+          .limit(1);
+
+        profile = result[0] ?? null;
+      } catch (err) {
+        console.warn("DB lookup failed:", err);
+      }
     }
 
+    // =========================
+    //  NOT FOUND
+    // =========================
     if (!profile) {
       return res.status(404).json({ error: "Profile not found" });
     }
