@@ -1,10 +1,27 @@
+import { Router, Request, Response } from "express";
+import { eq } from "drizzle-orm";
+import { getDb } from "../_core/db";
+import { emergencyProfiles, auditLogs } from "../_core/schema";
+import { decryptJSON } from "../_core/crypto";
+import { verifyQRPayloadToken } from "../_core/auth";
+import { isDemoMode, mockStore } from "../_core/demo";
+import { getPatientById } from "../services/patient.service";
+import { sendProfileAccessNotification } from "../services/notification.service";
+
+const router = Router();
+
+/**
+ * Publicly accessible HTML view for emergency responders scanning via generic camera app
+ * GET /api/emergency/scan?token=...
+ */
 router.get("/scan", async (req: Request, res: Response) => {
   const qrToken = req.query.token as string;
+  
   if (!qrToken) {
     return res.status(400).send(`
       <html>
         <body style="font-family:sans-serif; text-align:center; padding:50px;">
-          <h2> Missing QR Token</h2>
+          <h2>Missing QR Token</h2>
           <p>Please scan a valid MyUZIMA QR code.</p>
         </body>
       </html>
@@ -84,15 +101,15 @@ router.get("/scan", async (req: Request, res: Response) => {
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"/>
   <title>MyUZIMA Emergency Profile</title>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 16px; background: #f0f2f5; color: #1c1e21; }
-    .header { background: #0f8a78; color: white; padding: 20px; border-radius: 12px; margin-bottom: 16px; text-align: center; box-shadow: 0 4px 12px rgba(15, 138, 120, 0.3); }
-    .card { background: white; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); border: 1px solid #e4e6eb; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 16px; background: #f7f9fb; color: #1c1e21; }
+    .header { background: #2ec4b6; color: white; padding: 20px; border-radius: 12px; margin-bottom: 16px; text-align: center; box-shadow: 0 4px 12px rgba(46, 196, 182, 0.2); }
+    .card { background: white; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); border: 1px solid #e2e8f0; }
     .blood-box { display: flex; align-items: center; justify-content: space-between; }
     .blood-type { font-size: 2.5em; font-weight: 800; color: #dc3545; }
-    .label { font-size: 0.7rem; color: #65676b; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px; margin-bottom: 8px; }
+    .label { font-size: 0.7rem; color: #64748b; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px; margin-bottom: 8px; }
     .allergy-tag { background: #fff1f0; color: #cf1322; border: 1px solid #ffa39e; padding: 4px 10px; border-radius: 6px; display: inline-block; margin: 4px 4px 4px 0; font-weight: 600; font-size: 0.9em; }
-    .item-row { border-left: 4px solid #0f8a78; padding-left: 12px; margin: 12px 0; }
-    .contact-btn { display: block; background: #0f8a78; color: white; text-decoration: none; text-align: center; padding: 12px; border-radius: 8px; font-weight: 600; margin-top: 8px; }
+    .item-row { border-left: 4px solid #2ec4b6; padding-left: 12px; margin: 12px 0; }
+    .contact-btn { display: block; background: #1b9aaa; color: white; text-decoration: none; text-align: center; padding: 12px; border-radius: 8px; font-weight: 600; margin-top: 8px; }
     .footer { text-align: center; font-size: 0.75em; color: #8a8d91; margin-top: 24px; }
   </style>
 </head>
@@ -145,3 +162,6 @@ router.get("/scan", async (req: Request, res: Response) => {
     return res.status(400).send(`<html><body style="font-family:sans-serif;text-align:center;padding:50px;"><h2>Invalid or Expired QR Code</h2></body></html>`);
   }
 });
+
+//  Export the router so it can be used in server/_core/index.ts
+export default router;
