@@ -1,4 +1,4 @@
-﻿import "dotenv/config";
+import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
@@ -38,6 +38,9 @@ async function startServer() {
   const app = express();
   const server = createServer(app);
 
+  // ✅ CRITICAL FOR RENDER: Trust the proxy so req.ip is correct for rate limiting
+  app.set("trust proxy", 1); 
+
   // CORS - Allow frontend connections from any origin (academic demo)
   app.use(cors({
     origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : true,
@@ -59,7 +62,7 @@ async function startServer() {
   // MyUZIMA API routes
   app.use("/api/auth", authRoutes);
   app.use("/api/patient", patientRoutes);
-  app.use("/api/emergency", emergencyRoutes);
+  app.use("/api/emergency", emergencyRoutes); // ✅ Now correctly imports from emergency.ts default export
   app.use("/api/admin", adminRoutes);
   app.use("/api/health", healthRoutes);
   
@@ -98,7 +101,8 @@ async function startServer() {
     console.log(`[PATIENT]   POST   /api/patient/consent`);
     console.log(`[PATIENT]   GET    /api/patient/profile`);
     console.log(`[PATIENT]   POST   /api/patient/profile`);
-    console.log(`[PATIENT]   PUT    /api/patient/profile`);    console.log(`[PATIENT]   GET    /api/patient/qr`);
+    console.log(`[PATIENT]   PUT    /api/patient/profile`);
+    console.log(`[PATIENT]   GET    /api/patient/qr`);
     console.log(`[PATIENT]   GET    /api/patient/access-history`);
     console.log(`[EMERGENCY] POST   /api/emergency/scan`);
     console.log(`[EMERGENCY] POST   /api/emergency/audit/log`);
