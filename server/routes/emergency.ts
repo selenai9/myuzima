@@ -1,196 +1,147 @@
-import { Router, Request, Response } from "express";
-import { z } from "zod";
-import { getDb } from "../db";
-import { emergencyProfiles, auditLogs } from "../../drizzle/schema";
-import { eq } from "drizzle-orm";
-import { verifyQRPayloadToken, decryptJSON } from "../services/crypto";
-import { sendProfileAccessNotification } from "../services/otp";
-import { authMiddleware, responderAuthMiddleware } from "../middleware/auth";
-import { getPatientById } from "../db";
-import { isDemoMode, mockStore } from "../mockStore";
+router.get("/scan", async (req: Request, res: Response) => {
+  const qrToken = req.query.token as string;
+  if (!qrToken) {
+    return res.status(400).send(`
+      <html>
+        <body style="font-family:sans-serif; text-align:center; padding:50px;">
+          <h2> Missing QR Token</h2>
+          <p>Please scan a valid MyUZIMA QR code.</p>
+        </body>
+      </html>
+    `);
+  }
 
-const router = Router();
+  try {
+    let profileData: any = null;
 
-// Validation Schemas
-const scanSchema = z.object({ 
-  token: z.string().min(1, "QR token required") 
-});
+    // ── 1. Handle Demo Mode ──
+    if (isDemoMode()) {
+      let profile = null;
+      for (const [, qr] of mockStore.qrCodes) {
+        if (qr.token === qrToken) {
+          profile = mockStore.emergencyProfiles.get(qr.profileId);
+          break;
+        }
+      }
+      if (!profile && qrToken.startsWith("demo-")) {
+        const parts = qrToken.split("demo-qr-token-");
+        profile = parts[1] ? mockStore.emergencyProfiles.get(parts[1]) : mockStore.emergencyProfiles.get("profile-demo-1");
+      }
 
-const auditLogBatchSchema = z.object({
-  logs: z.array(z.object({
-    patientId: z.string(),
-    accessType: z.string(),
-    timestamp: z.string(),
-  })).min(1, "At least one log required"),
-});
+      if (profile && profile.isActive) {
+        profileData = {
+          bloodType: profile.bloodType,
+          allergies: JSON.parse(profile.allergies || "[]"),
+          medications: JSON.parse(profile.medications || "[]"),
+          conditions: JSON.parse(profile.conditions || "[]"),
+          contacts: JSON.parse(profile.contacts || "[]"),
+        };
+      }
+    } 
+    // ── 2. Production Mode ──
+    else {
+      const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
 
-/**
- * SHARED SCAN LOGIC
- * Handles both GET (browser/camera) and POST (app) requests
- */
-async function handleEmergencyScan(qrToken: string, res: Response, accessType: string) {
-  // ── Handle Demo Mode ──────────────────────────────────────────────────
-  if (isDemoMode()) {
-    let profile = null;
+      const { profileId } = verifyQRPayloadToken(qrToken);
+      const [profile] = await db.select().from(emergencyProfiles)
+        .where(eq(emergencyProfiles.id, profileId)).limit(1);
 
-    for (const [, qr] of mockStore.qrCodes) {
-      if (qr.token === qrToken) {
-        profile = mockStore.emergencyProfiles.get(qr.profileId);
-        break;
+      if (profile && profile.isActive) {
+        profileData = {
+          bloodType: decryptJSON<string>(profile.bloodType),
+          allergies: decryptJSON<any[]>(profile.allergies) || [],
+          medications: decryptJSON<any[]>(profile.medications) || [],
+          conditions: decryptJSON<string[]>(profile.conditions) || [],
+          contacts: decryptJSON<any[]>(profile.contacts) || [],
+        };
+
+        // Log the access & Notify (Fire and forget)
+        db.insert(auditLogs).values({
+          patientId: profile.patientId,
+          accessorId: "anonymous-camera-scan",
+          accessorName: "Web Browser",
+          action: "scan",
+          accessType: "CAMERA_WEB_SCAN",
+        }).catch(console.error);
+
+        getPatientById(profile.patientId).then(patient => {
+          if (patient?.phone) sendProfileAccessNotification(patient.phone, "a web browser scan");
+        }).catch(() => {});
       }
     }
 
-    if (!profile && qrToken.startsWith("demo-")) {
-      const parts = qrToken.split("demo-qr-token-");
-      profile = parts[1] ? mockStore.emergencyProfiles.get(parts[1]) : mockStore.emergencyProfiles.get("profile-demo-1");
+    if (!profileData) {
+      return res.status(404).send(`<html><body style="font-family:sans-serif;text-align:center;padding:50px;"><h2>Profile Not Found</h2></body></html>`);
     }
 
-    if (!profile || !profile.isActive) {
-      return res.status(404).json({ error: "Profile not found" });
-    }
+    // ── 3. Render Styled HTML ──
+    return res.send(`
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"/>
+  <title>MyUZIMA Emergency Profile</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 16px; background: #f0f2f5; color: #1c1e21; }
+    .header { background: #0f8a78; color: white; padding: 20px; border-radius: 12px; margin-bottom: 16px; text-align: center; box-shadow: 0 4px 12px rgba(15, 138, 120, 0.3); }
+    .card { background: white; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); border: 1px solid #e4e6eb; }
+    .blood-box { display: flex; align-items: center; justify-content: space-between; }
+    .blood-type { font-size: 2.5em; font-weight: 800; color: #dc3545; }
+    .label { font-size: 0.7rem; color: #65676b; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px; margin-bottom: 8px; }
+    .allergy-tag { background: #fff1f0; color: #cf1322; border: 1px solid #ffa39e; padding: 4px 10px; border-radius: 6px; display: inline-block; margin: 4px 4px 4px 0; font-weight: 600; font-size: 0.9em; }
+    .item-row { border-left: 4px solid #0f8a78; padding-left: 12px; margin: 12px 0; }
+    .contact-btn { display: block; background: #0f8a78; color: white; text-decoration: none; text-align: center; padding: 12px; border-radius: 8px; font-weight: 600; margin-top: 8px; }
+    .footer { text-align: center; font-size: 0.75em; color: #8a8d91; margin-top: 24px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div style="font-size:1.4em; font-weight:800; margin-bottom: 4px;">EMERGENCY MEDICAL DATA</div>
+    <div style="font-size:0.9em; opacity:0.9;">MyUZIMA Life-Saving Information</div>
+  </div>
 
-    const safeData = {
-      bloodType: profile.bloodType,
-      allergies: JSON.parse(profile.allergies || "[]"),
-      medications: JSON.parse(profile.medications || "[]"),
-      conditions: JSON.parse(profile.conditions || "[]"),
-      contacts: JSON.parse(profile.contacts || "[]"),
-    };
+  <div class="card blood-box">
+    <div><div class="label">Blood Type</div><div class="blood-type">${profileData.bloodType || 'Unknown'}</div></div>
+    <div style="text-align:right"><img src="https://img.icons8.com/color/48/000000/drop-of-blood.png" width="40" height="40"/></div>
+  </div>
 
-    return res.json({ success: true, profile: safeData, emergencyAccess: true });
-  }
+  ${profileData.allergies.length ? `
+    <div class="card">
+      <div class="label">Critical Allergies</div>
+      <div>${profileData.allergies.map((a: any) => `<span class="allergy-tag">⚠️ ${a.name} ${a.severity ? `(${a.severity})` : ''}</span>`).join('')}</div>
+    </div>
+  ` : ''}
 
-  // ── Production Mode ───────────────────────────────────────────────────
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  ${profileData.medications.length ? `
+    <div class="card">
+      <div class="label">Current Medications</div>
+      ${profileData.medications.map((m: any) => `<div class="item-row"><strong>${m.name}</strong><br/><small>${m.dosage} ${m.frequency ? `— ${m.frequency}` : ''}</small></div>`).join('')}
+    </div>
+  ` : ''}
 
-  try {
-    const { profileId } = verifyQRPayloadToken(qrToken);
+  ${profileData.contacts.length ? `
+    <div class="card">
+      <div class="label">Emergency Contacts</div>
+      ${profileData.contacts.map((c: any) => `
+        <div style="margin-bottom:15px; border-bottom:1px solid #eee; padding-bottom:10px;">
+          <strong>${c.name}</strong> (${c.relation})
+          <a href="tel:${c.phone}" class="contact-btn">📞 Call ${c.phone}</a>
+        </div>
+      `).join('')}
+    </div>
+  ` : ''}
 
-    const [profile] = await db
-      .select()
-      .from(emergencyProfiles)
-      .where(eq(emergencyProfiles.id, profileId))
-      .limit(1);
+  <div class="footer">
+    This information was provided by the patient for use in emergencies.<br/>
+    &copy; ${new Date().getFullYear()} MyUZIMA Health Platform
+  </div>
+</body>
+</html>`);
 
-    if (!profile || !profile.isActive) {
-      return res.status(404).json({ error: "Profile not found" });
-    }
-
-    const safeData = {
-      bloodType: decryptJSON<string>(profile.bloodType),
-      allergies: decryptJSON<any[]>(profile.allergies) || [],
-      medications: decryptJSON<any[]>(profile.medications) || [],
-      conditions: decryptJSON<string[]>(profile.conditions) || [],
-      contacts: decryptJSON<any[]>(profile.contacts) || [],
-    };
-
-    // Log the access
-    await db.insert(auditLogs).values({
-      patientId: profile.patientId,
-      accessorId: "anonymous-public-scan",
-      accessorName: "Public Web Scanner",
-      action: "scan",
-      accessType: accessType,
-    });
-
-    // Notify the patient
-    const patient = await getPatientById(profile.patientId);
-    if (patient?.phone) {
-      sendProfileAccessNotification(patient.phone, `A responder (${accessType})`).catch(() => {});
-    }
-
-    return res.json({ success: true, profile: safeData, emergencyAccess: true });
-
-  } catch (error: any) {
-    console.error("[SCAN ERROR]:", error);
-    const msg = error?.message?.includes("expired") ? "QR expired" : "Invalid QR code";
-    return res.status(400).json({ error: msg });
-  }
-}
-
-/**
- * POST /emergency/scan
- * Used by the MyUZIMA App / Responder App
- */
-router.post("/scan", async (req: Request, res: Response) => {
-  const { token } = scanSchema.parse(req.body);
-  await handleEmergencyScan(token, res, "APP_SCAN");
-});
-
-/**
- * GET /emergency/scan
- * PUBLIC URL: Triggered by native phone camera apps
- */
-router.get("/scan", async (req: Request, res: Response) => {
-  const qrToken = req.query.token as string;
-  if (!qrToken) return res.status(400).json({ error: "Missing QR token" });
-  
-  await handleEmergencyScan(qrToken, res, "CAMERA_WEB_SCAN");
-});
-
-// --- PROTECTED ROUTES BELOW ---
-
-router.get("/offline-sync", authMiddleware, responderAuthMiddleware, async (req: Request, res: Response) => {
-  try {
-    if (isDemoMode()) {
-      const profiles = Array.from(mockStore.emergencyProfiles.values())
-        .filter(p => p.isActive)
-        .map(p => ({
-          ...p,
-          allergies: JSON.parse(p.allergies || "[]"),
-          medications: JSON.parse(p.medications || "[]"),
-          conditions: JSON.parse(p.conditions || "[]"),
-          contacts: JSON.parse(p.contacts || "[]"),
-          qrToken: mockStore.qrCodes.get(p.id)?.token || `demo-qr-token-${p.id}`,
-        }));
-      return res.json({ success: true, profiles });
-    }
-
-    const db = await getDb();
-    if (!db) throw new Error("Database not available");
-    const allProfiles = await db.select().from(emergencyProfiles).limit(100);
-    res.json({ success: true, profiles: allProfiles });
-  } catch (error) {
-    res.status(500).json({ error: "Sync failed" });
+  } catch (err: any) {
+    console.error("HTML Scan Error:", err);
+    return res.status(400).send(`<html><body style="font-family:sans-serif;text-align:center;padding:50px;"><h2>Invalid or Expired QR Code</h2></body></html>`);
   }
 });
-
-router.post("/audit/log", authMiddleware, responderAuthMiddleware, async (req: Request, res: Response) => {
-  try {
-    const user = (req as any).user;
-    const { logs } = auditLogBatchSchema.parse(req.body);
-
-    if (isDemoMode()) {
-      logs.forEach((log) => {
-        mockStore.addAuditLog({
-          patientId: log.patientId,
-          accessorId: user.id,
-          accessorName: user.name || "Responder",
-          action: "scan",
-          accessType: log.accessType || "OFFLINE_CACHE",
-        });
-      });
-      return res.json({ success: true, synced: logs.length });
-    }
-
-    const db = await getDb();
-    if (!db) throw new Error("Database not available");
-
-    await db.insert(auditLogs).values(
-      logs.map((log) => ({
-        patientId: log.patientId,
-        accessorId: user.id,
-        accessorName: user.name || "Responder",
-        action: "scan" as const,
-        accessType: log.accessType,
-      }))
-    );
-
-    res.json({ success: true, synced: logs.length });
-  } catch (error) {
-    res.status(400).json({ error: "Audit log sync failed" });
-  }
-});
-
-export default router;
