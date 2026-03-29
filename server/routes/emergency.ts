@@ -26,109 +26,128 @@ const auditLogBatchSchema = z.object({
 
 /**
  * POST /emergency/scan
- * PUBLIC ENDPOINT: Used by the web-app or anyone scanning the QR.
- * Returns only non-identifiable medical data.
+ * Used by the App/API clients sending JSON payloads.
  */
 router.post("/scan", async (req: Request, res: Response) => {
   try {
     const { token: qrToken } = scanSchema.parse(req.body);
+    return await handleScan(qrToken, res);
+  } catch (error: any) {
+    handleScanError(error, res);
+  }
+});
 
-    // ── Handle Demo Mode ──────────────────────────────────────────────────
-    if (isDemoMode()) {
-      let profile = null;
+/**
+ * GET /emergency/scan
+ * PUBLIC ENDPOINT: Directly accessible via browser (from the QR URL).
+ * URL format: /api/emergency/scan?token=...
+ */
+router.get("/scan", async (req: Request, res: Response) => {
+  try {
+    const qrToken = req.query.token as string;
 
-      // Search through mock store for matching token
-      for (const [, qr] of mockStore.qrCodes) {
-        if (qr.token === qrToken) {
-          profile = mockStore.emergencyProfiles.get(qr.profileId);
-          break;
-        }
-      }
-
-      // Fallback for demo-specific token strings
-      if (!profile && qrToken.startsWith("demo-")) {
-        const parts = qrToken.split("demo-qr-token-");
-        profile = parts[1] ? mockStore.emergencyProfiles.get(parts[1]) : mockStore.emergencyProfiles.get("profile-demo-1");
-      }
-
-      if (!profile || !profile.isActive) {
-        return res.status(404).json({ error: "Profile not found" });
-      }
-
-      const safeData = {
-        bloodType: profile.bloodType,
-        allergies: JSON.parse(profile.allergies || "[]"),
-        medications: JSON.parse(profile.medications || "[]"),
-        conditions: JSON.parse(profile.conditions || "[]"),
-        contacts: JSON.parse(profile.contacts || "[]"),
-      };
-
-      return res.json({
-        success: true,
-        profile: safeData,
-        emergencyAccess: true
-      });
+    if (!qrToken) {
+      return res.status(400).json({ error: "Missing QR token" });
     }
 
-    // ── Production Mode ───────────────────────────────────────────────────
-    const db = await getDb();
-    if (!db) throw new Error("Database not available");
+    return await handleScan(qrToken, res);
+  } catch (error: any) {
+    handleScanError(error, res);
+  }
+});
 
-    // Decrypt and verify the JWT/Token payload
-    const { profileId } = verifyQRPayloadToken(qrToken);
+/**
+ * Helper function to process scan logic for both GET and POST
+ */
+async function handleScan(qrToken: string, res: Response) {
+  // ── Handle Demo Mode ──────────────────────────────────────────────────
+  if (isDemoMode()) {
+    let profile = null;
 
-    const [profile] = await db
-      .select()
-      .from(emergencyProfiles)
-      .where(eq(emergencyProfiles.id, profileId))
-      .limit(1);
+    for (const [, qr] of mockStore.qrCodes) {
+      if (qr.token === qrToken) {
+        profile = mockStore.emergencyProfiles.get(qr.profileId);
+        break;
+      }
+    }
+
+    if (!profile && qrToken.startsWith("demo-")) {
+      const parts = qrToken.split("demo-qr-token-");
+      profile = parts[1] ? mockStore.emergencyProfiles.get(parts[1]) : mockStore.emergencyProfiles.get("profile-demo-1");
+    }
 
     if (!profile || !profile.isActive) {
       return res.status(404).json({ error: "Profile not found" });
     }
 
-    // Decrypt sensitive fields into a "Safe" object (No IDs/PII)
     const safeData = {
-      bloodType: decryptJSON<string>(profile.bloodType),
-      allergies: decryptJSON<any[]>(profile.allergies) || [],
-      medications: decryptJSON<any[]>(profile.medications) || [],
-      conditions: decryptJSON<string[]>(profile.conditions) || [],
-      contacts: decryptJSON<any[]>(profile.contacts) || [],
+      bloodType: profile.bloodType,
+      allergies: JSON.parse(profile.allergies || "[]"),
+      medications: JSON.parse(profile.medications || "[]"),
+      conditions: JSON.parse(profile.conditions || "[]"),
+      contacts: JSON.parse(profile.contacts || "[]"),
     };
 
-    // Log the access as an anonymous scan
-    await db.insert(auditLogs).values({
-      patientId: profile.patientId,
-      accessorId: "anonymous-public-scan",
-      accessorName: "Public Web Scanner",
-      action: "scan",
-      accessType: "PUBLIC_QR_SCAN",
-    });
-
-    // Notify the patient via SMS/Push
-    const patient = await getPatientById(profile.patientId);
-    if (patient?.phone) {
-      sendProfileAccessNotification(patient.phone, "A responder (Public Scan)").catch(() => {});
-    }
-
-    res.json({
-      success: true,
-      profile: safeData,
-      emergencyAccess: true
-    });
-
-  } catch (error: any) {
-    console.error("[PUBLIC SCAN ERROR]:", error);
-    if (error?.message?.includes("expired")) {
-      return res.status(401).json({ error: "QR expired" });
-    }
-    res.status(400).json({ error: "Invalid QR code" });
+    return res.json({ success: true, profile: safeData, emergencyAccess: true });
   }
-});
+
+  // ── Production Mode ───────────────────────────────────────────────────
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const { profileId } = verifyQRPayloadToken(qrToken);
+
+  const [profile] = await db
+    .select()
+    .from(emergencyProfiles)
+    .where(eq(emergencyProfiles.id, profileId))
+    .limit(1);
+
+  if (!profile || !profile.isActive) {
+    return res.status(404).json({ error: "Profile not found" });
+  }
+
+  const safeData = {
+    bloodType: decryptJSON<string>(profile.bloodType),
+    allergies: decryptJSON<any[]>(profile.allergies) || [],
+    medications: decryptJSON<any[]>(profile.medications) || [],
+    conditions: decryptJSON<string[]>(profile.conditions) || [],
+    contacts: decryptJSON<any[]>(profile.contacts) || [],
+  };
+
+  // Log audit trail
+  await db.insert(auditLogs).values({
+    patientId: profile.patientId,
+    accessorId: "anonymous-public-scan",
+    accessorName: "Public Web Scanner",
+    action: "scan",
+    accessType: "PUBLIC_QR_SCAN",
+  });
+
+  // Notify patient
+  const patient = await getPatientById(profile.patientId);
+  if (patient?.phone) {
+    sendProfileAccessNotification(patient.phone, "A responder (Web Scan)").catch(() => {});
+  }
+
+  return res.json({
+    success: true,
+    profile: safeData,
+    emergencyAccess: true
+  });
+}
+
+function handleScanError(error: any, res: Response) {
+  console.error("[SCAN ERROR]:", error);
+  if (error?.message?.includes("expired")) {
+    return res.status(401).json({ error: "QR expired" });
+  }
+  return res.status(400).json({ error: "Invalid QR code" });
+}
 
 /**
  * GET /emergency/offline-sync
- * PROTECTED: Used by registered Responders to cache profiles locally.
+ * PROTECTED: Used by registered Responders.
  */
 router.get("/offline-sync", authMiddleware, responderAuthMiddleware, async (req: Request, res: Response) => {
   try {
@@ -156,7 +175,6 @@ router.get("/offline-sync", authMiddleware, responderAuthMiddleware, async (req:
     const db = await getDb();
     if (!db) throw new Error("Database not available");
 
-    // In a real app, you might filter profiles based on region or responder scope
     const allProfiles = await db.select().from(emergencyProfiles).limit(100);
     res.json({ success: true, profiles: allProfiles });
   } catch (error) {
@@ -166,7 +184,7 @@ router.get("/offline-sync", authMiddleware, responderAuthMiddleware, async (req:
 
 /**
  * POST /emergency/audit/log
- * PROTECTED: Allows the app to upload logs generated while offline.
+ * PROTECTED: Offline log syncing.
  */
 router.post("/audit/log", authMiddleware, responderAuthMiddleware, async (req: Request, res: Response) => {
   try {
