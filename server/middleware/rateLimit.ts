@@ -9,7 +9,7 @@ export const otpRegisterLimiter = rateLimit({
   message: "Too many registration attempts. Please try again later.",
   standardHeaders: true,
   legacyHeaders: false,
-  // ✅ Fix: Use the correct validation key for v8+
+  //  Fix: Use the correct validation key for v8+
   validate: { keyGeneratorIpFallback: false }, 
   keyGenerator: (req) => {
     return (req.body?.phone as string) || req.ip || "unknown";
