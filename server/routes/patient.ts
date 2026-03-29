@@ -56,7 +56,6 @@ router.post("/profile", authMiddleware, patientAuthMiddleware, async (req: Reque
         contacts: JSON.stringify(profileData.contacts),
       });
 
-      // FIX: Also store a demo QR code entry so scanning works
       const demoToken = `demo-qr-token-${profile.id}`;
       mockStore.qrCodes.set(profile.id, {
         profileId: profile.id,
@@ -144,22 +143,19 @@ router.get("/qr", authMiddleware, patientAuthMiddleware, async (req: Request, re
   try {
     const user = (req as any).user as JWTPayload;
 
-    // ── Resolve profile & patient data ──────────────────────────────────────
     let profileId: string;
     let patientName: string;
     let qrToken: string;
 
     if (isDemoMode()) {
       const profile = mockStore.profilesByPatient.get(user.id);
-      if (!profile) return res.status(404).json({ error: "No profile found. Please create one first." });
+      if (!profile) return res.status(404).json({ error: "No profile found." });
       profileId = profile.id;
-      patientName = user.id; // demo: use id as display name
+      patientName = user.id;
 
-      // FIX: Use the demo QR token from mockStore so the scan endpoint can find it
       const qrEntry = mockStore.qrCodes.get(profile.id);
       qrToken = qrEntry?.token || `demo-qr-token-${profileId}`;
 
-      // Ensure the QR code entry exists in mockStore
       if (!qrEntry) {
         mockStore.qrCodes.set(profile.id, { profileId: profile.id, token: qrToken });
       }
@@ -182,14 +178,17 @@ router.get("/qr", authMiddleware, patientAuthMiddleware, async (req: Request, re
 
       profileId = profile.id;
       patientName = patient?.id ?? user.id;
-
-      // FIX: Use generateQRPayloadToken for proper AES-256-GCM encrypted token
-      // This token can be verified/decrypted by verifyQRPayloadToken() in emergency/scan
       qrToken = generateQRPayloadToken(profileId);
     }
 
-    // ── Generate QR image from the proper token ─────────────────────────────
-    const qrImageBuffer = await QRCode.toBuffer(qrToken, {
+    // ── NEW: JSON Payload structure for enhanced QR compatibility ──────────
+    const qrData = JSON.stringify({
+      type: "myuzima-emergency",
+      token: qrToken,
+      endpoint: "https://myuzima-api.onrender.com/api/emergency/scan"
+    });
+
+    const qrImageBuffer = await QRCode.toBuffer(qrData, {
       width: 300,
       margin: 2,
       errorCorrectionLevel: "H",
@@ -202,19 +201,16 @@ router.get("/qr", authMiddleware, patientAuthMiddleware, async (req: Request, re
     const regularFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const qrImage = await pdfDoc.embedPng(qrImageBuffer);
 
-    // Background
     page.drawRectangle({
       x: 0, y: 0, width: 400, height: 500,
       color: rgb(0.97, 0.97, 0.97),
     });
 
-    // Header bar
     page.drawRectangle({
       x: 0, y: 440, width: 400, height: 60,
-      color: rgb(0.07, 0.54, 0.47), // teal
+      color: rgb(0.07, 0.54, 0.47), 
     });
 
-    // Title
     page.drawText("MyUZIMA", {
       x: 20, y: 468, size: 22, font, color: rgb(1, 1, 1),
     });
@@ -222,7 +218,6 @@ router.get("/qr", authMiddleware, patientAuthMiddleware, async (req: Request, re
       x: 20, y: 450, size: 11, font: regularFont, color: rgb(0.8, 0.95, 0.9),
     });
 
-    // Patient label
     page.drawText("PATIENT ID", {
       x: 20, y: 420, size: 9, font, color: rgb(0.5, 0.5, 0.5),
     });
@@ -230,10 +225,8 @@ router.get("/qr", authMiddleware, patientAuthMiddleware, async (req: Request, re
       x: 20, y: 405, size: 12, font, color: rgb(0.1, 0.1, 0.1),
     });
 
-    // QR code centred
     page.drawImage(qrImage, { x: 50, y: 90, width: 300, height: 300 });
 
-    // Footer instruction
     page.drawText("Scan this code in an emergency to access medical data", {
       x: 20, y: 65, size: 9, font: regularFont, color: rgb(0.4, 0.4, 0.4),
     });
@@ -241,14 +234,13 @@ router.get("/qr", authMiddleware, patientAuthMiddleware, async (req: Request, re
       x: 20, y: 50, size: 9, font, color: rgb(0.07, 0.54, 0.47),
     });
 
-    // ── Send PDF ─────────────────────────────────────────────────────────────
     const pdfBytes = await pdfDoc.save();
     const buffer = Buffer.from(pdfBytes);
 
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename=myuzima-card-${user.id}.pdf`);
     res.setHeader("Content-Length", buffer.length.toString()); 
-    res.end(buffer); // use res.end(), not res.send(), to avoid Express re-encoding
+    res.end(buffer);
 
   } catch (error) {
     console.error("[Patient] QR generation error:", error);
