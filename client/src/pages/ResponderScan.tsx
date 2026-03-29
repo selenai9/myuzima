@@ -40,6 +40,7 @@ export default function ResponderScan() {
   const html5QrRef = useRef<Html5Qrcode | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Network Status Listeners
   useEffect(() => {
     const handleOnline = () => setOnline(true);
     const handleOffline = () => setOnline(false);
@@ -51,6 +52,7 @@ export default function ResponderScan() {
     };
   }, []);
 
+  // Camera Management
   useEffect(() => {
     if (showScanner) {
       startCamera();
@@ -72,7 +74,6 @@ export default function ResponderScan() {
         { facingMode: "environment" },
         {
           fps: 15,
-          // Dynamic box sizing based on real-time viewfinder dimensions
           qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
             const size = Math.floor(Math.min(viewfinderWidth, viewfinderHeight) * 0.85);
             return { width: size, height: size };
@@ -129,13 +130,13 @@ export default function ResponderScan() {
 
     try {
       let token = decodedText.trim();
-      try {
-        if (token.startsWith('http')) {
+      if (token.startsWith('http')) {
+        try {
           const url = new URL(token);
           const extracted = url.searchParams.get("token");
           if (extracted) token = extracted;
-        }
-      } catch (e) { /* Fallback */ }
+        } catch (e) { /* Fallback */ }
+      }
 
       if (online) {
         const response = await apiClient.scanQRCode(token);
@@ -179,6 +180,7 @@ export default function ResponderScan() {
     "O+": "bg-emerald-600", "O-": "bg-emerald-700",
   };
 
+  // --- VIEW STEP ---
   if (step === "view" && profile) {
     return (
       <div className="min-h-screen bg-slate-50 p-4 space-y-4 pb-10">
@@ -227,12 +229,29 @@ export default function ResponderScan() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {profile.medications.map((m, i) => (
-              <div key={i} className="border-l-4 border-teal-500 pl-3 py-1">
-                <div className="font-bold text-slate-800">{m.name}</div>
-                <div className="text-xs text-slate-500">{m.dosage} • {m.frequency}</div>
-              </div>
-            ))}
+            {profile.medications.length > 0 ? (
+              profile.medications.map((m, i) => (
+                <div key={i} className="border-l-4 border-teal-500 pl-3 py-1">
+                  <div className="font-bold text-slate-800">{m.name}</div>
+                  <div className="text-xs text-slate-500">{m.dosage} • {m.frequency}</div>
+                </div>
+              ))
+            ) : <p className="text-slate-400 italic text-sm">None reported</p>}
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-slate-800 flex items-center gap-2 text-lg">
+              <Activity className="w-5 h-5 text-blue-600" /> {t("profile.conditions")}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {profile.conditions.length > 0 ? (
+              <ul className="list-disc list-inside text-slate-700 space-y-1">
+                {profile.conditions.map((c, i) => <li key={i}>{c}</li>)}
+              </ul>
+            ) : <p className="text-slate-400 italic text-sm">None reported</p>}
           </CardContent>
         </Card>
 
@@ -245,11 +264,13 @@ export default function ResponderScan() {
           <CardContent className="space-y-4">
             {profile.contacts.map((c, i) => (
               <div key={i} className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                <div className="mb-2">
-                  <div className="font-bold text-slate-900">{c.name}</div>
-                  <div className="text-xs text-slate-500 uppercase font-semibold">{c.relation}</div>
+                <div className="flex justify-between items-start mb-2">
+                  <div>
+                    <div className="font-bold text-slate-900">{c.name}</div>
+                    <div className="text-xs text-slate-500 uppercase font-semibold">{c.relation}</div>
+                  </div>
                 </div>
-                <Button className="w-full bg-blue-600" asChild>
+                <Button className="w-full bg-blue-600 hover:bg-blue-700" asChild>
                   <a href={`tel:${c.phone}`}><Phone className="w-4 h-4 mr-2" /> Call {c.phone}</a>
                 </Button>
               </div>
@@ -264,6 +285,7 @@ export default function ResponderScan() {
     );
   }
 
+  // --- SCAN STEP ---
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-slate-50">
       <Card className="w-full max-w-md shadow-xl border-none">
@@ -288,7 +310,11 @@ export default function ResponderScan() {
           
           {showScanner ? (
             <div className="space-y-4">
-              <div id="reader" className="w-full rounded-2xl overflow-hidden bg-black aspect-square shadow-inner"></div>
+              <div 
+                id="reader" 
+                className="w-full rounded-2xl bg-black shadow-inner" 
+                style={{ minHeight: "300px" }}
+              ></div>
               <Button variant="ghost" onClick={() => setShowScanner(false)} className="w-full text-slate-500">
                 <X className="w-4 h-4 mr-2" /> Cancel
               </Button>
