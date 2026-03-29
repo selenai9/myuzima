@@ -38,6 +38,9 @@ export default function ResponderScan() {
 
   const html5QrRef = useRef<Html5Qrcode | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Guard against concurrent stop() calls — html5-qrcode throws if stop() is
+  // called while a previous stop is still in flight (state machine constraint).
+  const isStopping = useRef(false);
 
   useEffect(() => {
     const handleOnline = () => setOnline(true);
@@ -75,7 +78,10 @@ export default function ResponderScan() {
           aspectRatio: 1.0,
         },
         (decodedText) => {
-          setShowScanner(false);
+          // Do NOT call setShowScanner(false) here — that would trigger the
+          // useEffect to call stopCamera() concurrently with handleQRScan's
+          // own stopCamera() call, causing the state-machine loop.
+          // handleQRScan calls stopCamera() then sets state itself.
           handleQRScan(decodedText);
         },
         () => {} 
@@ -87,18 +93,27 @@ export default function ResponderScan() {
   };
 
   const stopCamera = async () => {
-    if (html5QrRef.current?.isScanning) {
-      try {
-        await html5QrRef.current.stop();
-        html5QrRef.current = null;
-      } catch (err) { console.error("Scanner stop error", err); }
+    // Prevent concurrent stop() calls — the html5-qrcode state machine will
+    // throw "Cannot transition to a new state, already under transition" if
+    // stop() is called a second time before the first resolves.
+    if (isStopping.current || !html5QrRef.current?.isScanning) return;
+    isStopping.current = true;
+    try {
+      await html5QrRef.current.stop();
+      html5QrRef.current = null;
+    } catch (err) {
+      console.error("Scanner stop error", err);
+    } finally {
+      isStopping.current = false;
     }
   };
 
   const handleQRScan = async (decodedText: string) => {
     setLoading(true);
     setError("");
+    // Stop the camera first, then hide the scanner UI — single stop path
     await stopCamera();
+    setShowScanner(false);
 
     try {
       let token = decodedText.trim();
