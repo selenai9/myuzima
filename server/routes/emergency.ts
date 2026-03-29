@@ -1,3 +1,4 @@
+console.log("🚨 Emergency routes loaded");
 import { Router } from "express";
 import { getDb } from "../db";
 import { mockStore, isDemoMode } from "../mockStore";
