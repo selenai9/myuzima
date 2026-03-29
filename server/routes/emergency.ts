@@ -1,8 +1,18 @@
+import { Router, Request, Response } from "express";
+import { eq } from "drizzle-orm";
+//  Fixed paths for the routes folder structure
+import { getDb } from "../_core/db";
+import { emergencyProfiles, auditLogs } from "../_core/schema";
+import { decryptJSON } from "../_core/crypto";
+import { verifyQRPayloadToken } from "../_core/auth";
+import { isDemoMode, mockStore } from "../_core/demo";
+import { getPatientById } from "../services/patient.service";
+import { sendProfileAccessNotification } from "../services/notification.service";
+
+const router = Router();
+
 // ── HTML Builder Helpers ──────────────────────────────────────────────────────
-// These replace the 4-level-deep nested template literals that caused esbuild
-// to fail with "Syntax error `"". esbuild cannot parse template literals nested
-// more than ~2 levels deep; extracting .map() callbacks into named functions
-// fixes the build without changing any runtime behaviour.
+// These replace nested template literals to prevent esbuild syntax errors.
 
 function renderAllergyTag(a: { name: string; severity?: string }): string {
   const severityLabel = a.severity ? " (" + a.severity + ")" : "";
@@ -100,7 +110,8 @@ function buildEmergencyHTML(profileData: {
     "</body>\n</html>"
   );
 }
-// ─────────────────────────────────────────────────────────────────────────────
+
+// ── Routes ──────────────────────────────────────────────────────────────────
 
 router.get("/scan", async (req: Request, res: Response) => {
   const qrToken = req.query.token as string;
@@ -118,7 +129,6 @@ router.get("/scan", async (req: Request, res: Response) => {
   try {
     let profileData: any = null;
 
-    // ── 1. Handle Demo Mode ──
     if (isDemoMode()) {
       let profile = null;
       for (const [, qr] of mockStore.qrCodes) {
@@ -141,9 +151,7 @@ router.get("/scan", async (req: Request, res: Response) => {
           contacts: JSON.parse(profile.contacts || "[]"),
         };
       }
-    }
-    // ── 2. Production Mode ──
-    else {
+    } else {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
 
@@ -160,7 +168,6 @@ router.get("/scan", async (req: Request, res: Response) => {
           contacts: decryptJSON<any[]>(profile.contacts) || [],
         };
 
-        // Log the access & Notify (Fire and forget)
         db.insert(auditLogs).values({
           patientId: profile.patientId,
           accessorId: "anonymous-camera-scan",
@@ -179,7 +186,6 @@ router.get("/scan", async (req: Request, res: Response) => {
       return res.status(404).send(`<html><body style="font-family:sans-serif;text-align:center;padding:50px;"><h2>Profile Not Found</h2></body></html>`);
     }
 
-    // ── 3. Render Styled HTML ──
     return res.send(buildEmergencyHTML(profileData));
 
   } catch (err: any) {
@@ -187,3 +193,6 @@ router.get("/scan", async (req: Request, res: Response) => {
     return res.status(400).send(`<html><body style="font-family:sans-serif;text-align:center;padding:50px;"><h2>Invalid or Expired QR Code</h2></body></html>`);
   }
 });
+
+//  Export the router for use in server/_core/index.ts
+export default router;
