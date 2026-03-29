@@ -99,4 +99,46 @@ router.post("/access", async (req, res) => {
   }
 });
 
+/**
+ * POST emergency scan
+ */
+router.post("/scan", async (req, res) => {
+  try {
+    console.log("SCAN BODY:", req.body); // 👈 helps debugging
+
+    const { token, qrData, id } = req.body;
+
+    // Accept whatever the frontend sends
+    const lookupId = id || token || qrData;
+
+    if (!lookupId) {
+      return res.status(400).json({ error: "Invalid QR payload" });
+    }
+
+    const db = getDb();
+    let profile = null;
+
+    if (db) {
+      profile = await db.emergencyProfiles?.findUnique({
+        where: { id: lookupId },
+      });
+    }
+
+    if (!profile) {
+      profile = mockStore.emergencyProfiles?.find(
+        (p: any) => p.id === lookupId
+      );
+    }
+
+    if (!profile) {
+      return res.status(404).json({ error: "Profile not found" });
+    }
+
+    return res.json(profile);
+  } catch (error) {
+    console.error("Scan error:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 export default router;
