@@ -163,5 +163,5 @@ router.get("/scan", async (req: Request, res: Response) => {
   }
 });
 
-//  Export the router so it can be used in server/_core/index.ts
+// Export the router so it can be used in server/_core/index.ts
 export default router;
