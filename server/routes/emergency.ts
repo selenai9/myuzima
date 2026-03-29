@@ -128,7 +128,7 @@ router.get("/scan", async (req: Request, res: Response) => {
   ${profileData.allergies.length ? `
     <div class="card">
       <div class="label">Critical Allergies</div>
-      <div>${profileData.allergies.map((a: any) => \`<span class="allergy-tag">⚠️ \${a.name} \${a.severity ? \`(\${a.severity})\` : ''}</span>\`).join('')}</div>
+      <div>${profileData.allergies.map((a: any) => \`<span class="allergy-tag"> \${a.name} \${a.severity ? \`(\${a.severity})\` : ''}</span>\`).join('')}</div>
     </div>
   ` : ''}
 
@@ -145,7 +145,7 @@ router.get("/scan", async (req: Request, res: Response) => {
       \${profileData.contacts.map((c: any) => \`
         <div style="margin-bottom:15px; border-bottom:1px solid #eee; padding-bottom:10px;">
           <strong>\${c.name}</strong> (\${c.relation})
-          <a href="tel:\${c.phone}" class="contact-btn">📞 Call \${c.phone}</a>
+          <a href="tel:\${c.phone}" class="contact-btn"> Call \${c.phone}</a>
         </div>
       \`).join('')}
     </div>
