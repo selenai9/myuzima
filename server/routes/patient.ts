@@ -143,7 +143,6 @@ router.get("/qr", authMiddleware, patientAuthMiddleware, async (req: Request, re
   try {
     const user = (req as any).user as JWTPayload;
 
-    // ── Resolve profile & patient data ──────────────────────────────────────
     let profileId: string;
     let patientName: string;
     let qrToken: string;
@@ -182,7 +181,7 @@ router.get("/qr", authMiddleware, patientAuthMiddleware, async (req: Request, re
       qrToken = generateQRPayloadToken(profileId);
     }
 
-    // ── Updated: Build a clickable URL instead of a raw token ───────────────
+    // ── Build a clickable URL for standard camera apps ────────────────────────
     const qrData = `https://myuzima-api.onrender.com/api/emergency/scan?token=${qrToken}`;
 
     const qrImageBuffer = await QRCode.toBuffer(qrData, {
@@ -198,19 +197,16 @@ router.get("/qr", authMiddleware, patientAuthMiddleware, async (req: Request, re
     const regularFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const qrImage = await pdfDoc.embedPng(qrImageBuffer);
 
-    // Background
     page.drawRectangle({
       x: 0, y: 0, width: 400, height: 500,
       color: rgb(0.97, 0.97, 0.97),
     });
 
-    // Header bar
     page.drawRectangle({
       x: 0, y: 440, width: 400, height: 60,
       color: rgb(0.07, 0.54, 0.47), 
     });
 
-    // Title
     page.drawText("MyUZIMA", {
       x: 20, y: 468, size: 22, font, color: rgb(1, 1, 1),
     });
@@ -218,7 +214,6 @@ router.get("/qr", authMiddleware, patientAuthMiddleware, async (req: Request, re
       x: 20, y: 450, size: 11, font: regularFont, color: rgb(0.8, 0.95, 0.9),
     });
 
-    // Patient label
     page.drawText("PATIENT ID", {
       x: 20, y: 420, size: 9, font, color: rgb(0.5, 0.5, 0.5),
     });
@@ -226,10 +221,8 @@ router.get("/qr", authMiddleware, patientAuthMiddleware, async (req: Request, re
       x: 20, y: 405, size: 12, font, color: rgb(0.1, 0.1, 0.1),
     });
 
-    // QR code centred
     page.drawImage(qrImage, { x: 50, y: 90, width: 300, height: 300 });
 
-    // Footer instruction
     page.drawText("Scan this code in an emergency to access medical data", {
       x: 20, y: 65, size: 9, font: regularFont, color: rgb(0.4, 0.4, 0.4),
     });
@@ -237,7 +230,6 @@ router.get("/qr", authMiddleware, patientAuthMiddleware, async (req: Request, re
       x: 20, y: 50, size: 9, font, color: rgb(0.07, 0.54, 0.47),
     });
 
-    // ── Send PDF ─────────────────────────────────────────────────────────────
     const pdfBytes = await pdfDoc.save();
     const buffer = Buffer.from(pdfBytes);
 
