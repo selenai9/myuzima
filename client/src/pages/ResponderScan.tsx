@@ -40,7 +40,6 @@ export default function ResponderScan() {
   const html5QrRef = useRef<Html5Qrcode | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Network Status Listeners
   useEffect(() => {
     const handleOnline = () => setOnline(true);
     const handleOffline = () => setOnline(false);
@@ -52,7 +51,6 @@ export default function ResponderScan() {
     };
   }, []);
 
-  // Camera Management
   useEffect(() => {
     if (showScanner) {
       startCamera();
@@ -66,15 +64,23 @@ export default function ResponderScan() {
     try {
       const scanner = new Html5Qrcode("reader", {
         formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
-        verbose: false
+        verbose: false,
       });
       html5QrRef.current = scanner;
 
       await scanner.start(
         { facingMode: "environment" },
-        { fps: 15, qrbox: { width: 250, height: 250 } },
+        {
+          fps: 15,
+          // Dynamic box sizing based on real-time viewfinder dimensions
+          qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
+            const size = Math.floor(Math.min(viewfinderWidth, viewfinderHeight) * 0.85);
+            return { width: size, height: size };
+          },
+          aspectRatio: 1.0,
+        },
         (decodedText) => {
-          setShowScanner(false); // handleQRScan will stop camera
+          setShowScanner(false);
           handleQRScan(decodedText);
         },
         () => {} 
@@ -122,7 +128,6 @@ export default function ResponderScan() {
     await stopCamera();
 
     try {
-      // --- TOKEN PARSING LOGIC ---
       let token = decodedText.trim();
       try {
         if (token.startsWith('http')) {
@@ -130,7 +135,7 @@ export default function ResponderScan() {
           const extracted = url.searchParams.get("token");
           if (extracted) token = extracted;
         }
-      } catch (e) { /* Fallback to raw token */ }
+      } catch (e) { /* Fallback */ }
 
       if (online) {
         const response = await apiClient.scanQRCode(token);
@@ -174,7 +179,6 @@ export default function ResponderScan() {
     "O+": "bg-emerald-600", "O-": "bg-emerald-700",
   };
 
-  // --- VIEW STEP ---
   if (step === "view" && profile) {
     return (
       <div className="min-h-screen bg-slate-50 p-4 space-y-4 pb-10">
@@ -198,7 +202,6 @@ export default function ResponderScan() {
           </Badge>
         </div>
 
-        {/* Allergies */}
         <Card className="border-red-100 shadow-sm">
           <CardHeader className="pb-2">
             <CardTitle className="text-red-600 flex items-center gap-2 text-lg">
@@ -217,7 +220,6 @@ export default function ResponderScan() {
           </CardContent>
         </Card>
 
-        {/* Medications */}
         <Card className="shadow-sm">
           <CardHeader className="pb-2">
             <CardTitle className="text-slate-800 flex items-center gap-2 text-lg">
@@ -225,34 +227,15 @@ export default function ResponderScan() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {profile.medications.length > 0 ? (
-              profile.medications.map((m, i) => (
-                <div key={i} className="border-l-4 border-teal-500 pl-3 py-1">
-                  <div className="font-bold text-slate-800">{m.name}</div>
-                  <div className="text-xs text-slate-500">{m.dosage} • {m.frequency}</div>
-                </div>
-              ))
-            ) : <p className="text-slate-400 italic text-sm">None reported</p>}
+            {profile.medications.map((m, i) => (
+              <div key={i} className="border-l-4 border-teal-500 pl-3 py-1">
+                <div className="font-bold text-slate-800">{m.name}</div>
+                <div className="text-xs text-slate-500">{m.dosage} • {m.frequency}</div>
+              </div>
+            ))}
           </CardContent>
         </Card>
 
-        {/* Conditions */}
-        <Card className="shadow-sm">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-slate-800 flex items-center gap-2 text-lg">
-              <Activity className="w-5 h-5 text-blue-600" /> {t("profile.conditions")}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {profile.conditions.length > 0 ? (
-              <ul className="list-disc list-inside text-slate-700 space-y-1">
-                {profile.conditions.map((c, i) => <li key={i}>{c}</li>)}
-              </ul>
-            ) : <p className="text-slate-400 italic text-sm">None reported</p>}
-          </CardContent>
-        </Card>
-
-        {/* Emergency Contacts */}
         <Card className="shadow-sm border-blue-100">
           <CardHeader className="pb-2">
             <CardTitle className="text-slate-800 flex items-center gap-2 text-lg">
@@ -262,13 +245,11 @@ export default function ResponderScan() {
           <CardContent className="space-y-4">
             {profile.contacts.map((c, i) => (
               <div key={i} className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                <div className="flex justify-between items-start mb-2">
-                  <div>
-                    <div className="font-bold text-slate-900">{c.name}</div>
-                    <div className="text-xs text-slate-500 uppercase font-semibold">{c.relation}</div>
-                  </div>
+                <div className="mb-2">
+                  <div className="font-bold text-slate-900">{c.name}</div>
+                  <div className="text-xs text-slate-500 uppercase font-semibold">{c.relation}</div>
                 </div>
-                <Button className="w-full bg-blue-600 hover:bg-blue-700" asChild>
+                <Button className="w-full bg-blue-600" asChild>
                   <a href={`tel:${c.phone}`}><Phone className="w-4 h-4 mr-2" /> Call {c.phone}</a>
                 </Button>
               </div>
@@ -283,7 +264,6 @@ export default function ResponderScan() {
     );
   }
 
-  // --- SCAN STEP ---
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-slate-50">
       <Card className="w-full max-w-md shadow-xl border-none">
@@ -333,7 +313,7 @@ export default function ResponderScan() {
                   <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileUpload} />
                 </>
               ) : (
-                <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2">
+                <div className="space-y-3">
                   <input
                     className="w-full h-12 border-2 rounded-xl px-4 text-center text-lg font-mono tracking-widest focus:border-teal-500 outline-none"
                     placeholder="Enter Token"
