@@ -32,7 +32,6 @@ export default function ResponderScan() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [online, setOnline] = useState(navigator.onLine);
-  
   const [manualToken, setManualToken] = useState("");
   const [showInput, setShowInput] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
@@ -40,7 +39,6 @@ export default function ResponderScan() {
   const html5QrRef = useRef<Html5Qrcode | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Network Status Listeners
   useEffect(() => {
     const handleOnline = () => setOnline(true);
     const handleOffline = () => setOnline(false);
@@ -52,13 +50,9 @@ export default function ResponderScan() {
     };
   }, []);
 
-  // Camera Management
   useEffect(() => {
-    if (showScanner) {
-      startCamera();
-    } else {
-      stopCamera();
-    }
+    if (showScanner) startCamera();
+    else stopCamera();
     return () => { stopCamera(); };
   }, [showScanner]);
 
@@ -93,33 +87,11 @@ export default function ResponderScan() {
   };
 
   const stopCamera = async () => {
-    if (html5QrRef.current && html5QrRef.current.isScanning) {
+    if (html5QrRef.current?.isScanning) {
       try {
         await html5QrRef.current.stop();
         html5QrRef.current = null;
-      } catch (err) {
-        console.error("Scanner stop error", err);
-      }
-    }
-  };
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    
-    e.target.value = "";
-    setLoading(true);
-    setError("");
-
-    try {
-      const fileScanner = new Html5Qrcode("reader-hidden");
-      const result = await fileScanner.scanFile(file, false);
-      handleQRScan(result);
-    } catch (err) {
-      setError("No QR code found in image.");
-      toast.error("Scan failed");
-    } finally {
-      setLoading(false);
+      } catch (err) { console.error("Scanner stop error", err); }
     }
   };
 
@@ -135,36 +107,27 @@ export default function ResponderScan() {
           const url = new URL(token);
           const extracted = url.searchParams.get("token");
           if (extracted) token = extracted;
-        } catch (e) { /* Fallback */ }
+        } catch (e) {}
       }
 
       if (online) {
         const response = await apiClient.scanQRCode(token);
         setProfile(response.profile);
-
         if (response.profile.dataAvailable) {
-          await cacheProfile({
-            ...response.profile,
-            qrToken: token,
-            lastScanned: new Date(),
-          });
+          await cacheProfile({ ...response.profile, qrToken: token, lastScanned: new Date() });
         }
       } else {
         const cached = await getProfileByToken(token);
         if (cached) {
           setProfile({ ...cached, dataAvailable: true } as EmergencyProfile);
-          toast.info("Offline mode active - using cached data");
-        } else {
-          throw new Error("Profile not found in offline cache.");
-        }
+          toast.info("Offline mode - using cached data");
+        } else throw new Error("Profile not found in offline cache.");
       }
       setStep("view");
     } catch (err: any) {
-      setError(err?.message || "Scan failed or token invalid.");
+      setError(err?.message || "Scan failed");
       toast.error(err?.message || "Scan failed");
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
   const handleManualSubmit = () => {
@@ -180,31 +143,31 @@ export default function ResponderScan() {
     "O+": "bg-emerald-600", "O-": "bg-emerald-700",
   };
 
-  // --- VIEW STEP ---
   if (step === "view" && profile) {
     return (
-      <div className="min-h-screen bg-slate-50 p-4 space-y-4 pb-10">
+      <div className="min-h-screen bg-healthcare-bg p-4 space-y-4 pb-10 page-enter">
         <header className="flex items-center justify-between">
           <Button variant="ghost" size="sm" onClick={() => setStep("scan")}>
             <ArrowLeft className="w-4 h-4 mr-1" /> {t("common.back")}
           </Button>
-          {!online && <Badge variant="outline" className="text-orange-600 border-orange-200"><WifiOff className="w-3 h-3 mr-1" /> Offline</Badge>}
+          {!online && <Badge variant="outline" className="text-orange-600 border-orange-200 bg-orange-50"><WifiOff className="w-3 h-3 mr-1" /> Offline</Badge>}
         </header>
 
         {!profile.dataAvailable && (
           <div className="bg-red-50 border-2 border-red-200 text-red-700 p-4 rounded-xl text-center font-bold">
-            ⚠️ ENCRYPTED DATA UNAVAILABLE
+             ENCRYPTED DATA UNAVAILABLE
           </div>
         )}
 
         <div className="flex flex-col items-center gap-2 py-4">
-          <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">Blood Type</div>
-          <Badge className={`${bloodTypeColors[profile.bloodType] || "bg-slate-500"} text-white text-5xl px-10 py-6 rounded-3xl shadow-lg shadow-slate-200`}>
+          <div className="text-xs font-bold text-healthcare-muted uppercase tracking-widest">Blood Type</div>
+          <Badge className={`${bloodTypeColors[profile.bloodType] || "bg-slate-500"} text-white text-5xl px-10 py-6 rounded-3xl shadow-lg`}>
             {profile.bloodType}
           </Badge>
         </div>
 
-        <Card className="border-red-100 shadow-sm">
+        {/* Medical Cards */}
+        <Card className="healthcare-card border-red-100">
           <CardHeader className="pb-2">
             <CardTitle className="text-red-600 flex items-center gap-2 text-lg">
               <AlertCircle className="w-5 h-5" /> {t("profile.allergies")}
@@ -215,62 +178,44 @@ export default function ResponderScan() {
               profile.allergies.map((a, i) => (
                 <div key={i} className="bg-red-50 border border-red-100 px-3 py-1.5 rounded-lg flex items-center gap-2">
                   <span className="font-bold text-red-700 text-sm">{a.name}</span>
-                  {a.severity && <Badge className="bg-red-200 text-red-800 hover:bg-red-200 text-[10px] h-5">{a.severity}</Badge>}
+                  {a.severity && <Badge className="bg-red-200 text-red-800 text-[10px] h-5">{a.severity}</Badge>}
                 </div>
               ))
-            ) : <p className="text-slate-400 italic text-sm">None reported</p>}
+            ) : <p className="text-healthcare-muted italic text-sm">None reported</p>}
           </CardContent>
         </Card>
 
-        <Card className="shadow-sm">
+        {/* Medications & Conditions... */}
+        <Card className="healthcare-card">
           <CardHeader className="pb-2">
-            <CardTitle className="text-slate-800 flex items-center gap-2 text-lg">
-              <Pill className="w-5 h-5 text-teal-600" /> {t("profile.medications")}
+            <CardTitle className="text-healthcare-text flex items-center gap-2 text-lg">
+              <Pill className="w-5 h-5 text-healthcare-teal" /> {t("profile.medications")}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {profile.medications.length > 0 ? (
-              profile.medications.map((m, i) => (
-                <div key={i} className="border-l-4 border-teal-500 pl-3 py-1">
-                  <div className="font-bold text-slate-800">{m.name}</div>
-                  <div className="text-xs text-slate-500">{m.dosage} • {m.frequency}</div>
-                </div>
-              ))
-            ) : <p className="text-slate-400 italic text-sm">None reported</p>}
+            {profile.medications.map((m, i) => (
+              <div key={i} className="border-l-4 border-healthcare-teal pl-3 py-1">
+                <div className="font-bold text-healthcare-text">{m.name}</div>
+                <div className="text-xs text-healthcare-muted">{m.dosage} • {m.frequency}</div>
+              </div>
+            ))}
           </CardContent>
         </Card>
 
-        <Card className="shadow-sm">
+        <Card className="healthcare-card border-healthcare-teal-light">
           <CardHeader className="pb-2">
-            <CardTitle className="text-slate-800 flex items-center gap-2 text-lg">
-              <Activity className="w-5 h-5 text-blue-600" /> {t("profile.conditions")}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {profile.conditions.length > 0 ? (
-              <ul className="list-disc list-inside text-slate-700 space-y-1">
-                {profile.conditions.map((c, i) => <li key={i}>{c}</li>)}
-              </ul>
-            ) : <p className="text-slate-400 italic text-sm">None reported</p>}
-          </CardContent>
-        </Card>
-
-        <Card className="shadow-sm border-blue-100">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-slate-800 flex items-center gap-2 text-lg">
-              <Phone className="w-5 h-5 text-blue-600" /> {t("profile.contacts")}
+            <CardTitle className="text-healthcare-text flex items-center gap-2 text-lg">
+              <Phone className="w-5 h-5 text-healthcare-deep" /> {t("profile.contacts")}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             {profile.contacts.map((c, i) => (
-              <div key={i} className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                <div className="flex justify-between items-start mb-2">
-                  <div>
-                    <div className="font-bold text-slate-900">{c.name}</div>
-                    <div className="text-xs text-slate-500 uppercase font-semibold">{c.relation}</div>
-                  </div>
+              <div key={i} className="bg-healthcare-bg/50 p-3 rounded-xl border border-border/40">
+                <div className="mb-2">
+                  <div className="font-bold text-healthcare-text">{c.name}</div>
+                  <div className="text-xs text-healthcare-muted uppercase font-semibold">{c.relation}</div>
                 </div>
-                <Button className="w-full bg-blue-600 hover:bg-blue-700" asChild>
+                <Button className="w-full bg-healthcare-deep hover:bg-healthcare-deep/90" asChild>
                   <a href={`tel:${c.phone}`}><Phone className="w-4 h-4 mr-2" /> Call {c.phone}</a>
                 </Button>
               </div>
@@ -285,18 +230,17 @@ export default function ResponderScan() {
     );
   }
 
-  // --- SCAN STEP ---
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-slate-50">
-      <Card className="w-full max-w-md shadow-xl border-none">
+    <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-healthcare-bg page-enter">
+      <Card className="w-full max-w-md healthcare-card border-none shadow-xl">
         <CardHeader className="text-center">
           <div className="mx-auto w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mb-2">
-            <Heart className="w-8 h-8 text-red-500 fill-red-500" />
+            <Heart className="w-8 h-8 text-healthcare-teal fill-healthcare-teal" />
           </div>
-          <CardTitle className="text-2xl font-black text-slate-800 tracking-tight">
+          <CardTitle className="text-2xl font-black text-healthcare-text tracking-tight">
             MyUZIMA Responder
           </CardTitle>
-          <p className="text-sm text-slate-500">Authorized Emergency Access Only</p>
+          <p className="text-sm text-healthcare-muted">Authorized Emergency Access Only</p>
         </CardHeader>
         
         <CardContent className="space-y-4">
@@ -315,7 +259,7 @@ export default function ResponderScan() {
                 className="w-full rounded-2xl bg-black shadow-inner" 
                 style={{ minHeight: "300px" }}
               ></div>
-              <Button variant="ghost" onClick={() => setShowScanner(false)} className="w-full text-slate-500">
+              <Button variant="ghost" onClick={() => setShowScanner(false)} className="w-full text-healthcare-muted">
                 <X className="w-4 h-4 mr-2" /> Cancel
               </Button>
             </div>
@@ -323,25 +267,29 @@ export default function ResponderScan() {
             <div className="space-y-3">
               {!showInput ? (
                 <>
-                  <Button onClick={() => setShowScanner(true)} disabled={loading} className="w-full h-16 text-lg bg-teal-600 hover:bg-teal-700 shadow-md">
-                    <Camera className="w-6 h-6 mr-3" /> Scan QR Code
+                  <Button onClick={() => setShowScanner(true)} disabled={loading} className="btn-healthcare w-full h-16 text-lg">
+                    <Camera className="w-6 h-6" /> Scan QR Code
                   </Button>
-
                   <div className="grid grid-cols-2 gap-3">
-                    <Button variant="outline" onClick={() => fileInputRef.current?.click()} disabled={loading} className="h-12 border-slate-200">
+                    <Button variant="outline" onClick={() => fileInputRef.current?.click()} className="h-12 border-border">
                       <Upload className="w-4 h-4 mr-2" /> Gallery
                     </Button>
-                    <Button variant="outline" onClick={() => setShowInput(true)} disabled={loading} className="h-12 border-slate-200">
+                    <Button variant="outline" onClick={() => setShowInput(true)} className="h-12 border-border">
                       <Keyboard className="w-4 h-4 mr-2" /> Manual
                     </Button>
                   </div>
-                  
-                  <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileUpload} />
+                  <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      const fs = new Html5Qrcode("reader-hidden");
+                      fs.scanFile(file, false).then(handleQRScan).catch(() => setError("No QR found"));
+                    }
+                  }} />
                 </>
               ) : (
                 <div className="space-y-3">
                   <input
-                    className="w-full h-12 border-2 rounded-xl px-4 text-center text-lg font-mono tracking-widest focus:border-teal-500 outline-none"
+                    className="healthcare-input font-mono tracking-widest text-center text-lg"
                     placeholder="Enter Token"
                     value={manualToken}
                     onChange={(e) => setManualToken(e.target.value)}
@@ -350,16 +298,16 @@ export default function ResponderScan() {
                   />
                   <div className="flex gap-2">
                     <Button variant="ghost" onClick={() => { setShowInput(false); setManualToken(""); }} className="flex-1">Cancel</Button>
-                    <Button onClick={handleManualSubmit} className="flex-1 bg-teal-600">Submit</Button>
+                    <Button onClick={handleManualSubmit} className="btn-healthcare flex-1">Submit</Button>
                   </div>
                 </div>
               )}
             </div>
           )}
 
-          <div className="pt-4 border-t border-slate-100">
-             <div className="flex items-center justify-center gap-4 text-[10px] text-slate-400 font-bold uppercase tracking-widest">
-                <span className={online ? "text-emerald-500" : "text-red-400"}>
+          <div className="pt-4 border-t border-border/40">
+             <div className="flex items-center justify-center gap-4 text-[10px] text-healthcare-muted font-bold uppercase tracking-widest">
+                <span className={online ? "text-healthcare-success" : "text-red-400"}>
                   {online ? "● System Online" : "○ System Offline"}
                 </span>
                 <span>• Secure Encryption</span>
