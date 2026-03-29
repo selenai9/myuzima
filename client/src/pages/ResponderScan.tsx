@@ -6,7 +6,10 @@ import { cacheProfile, getProfileByToken } from "@/lib/idb";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { AlertCircle, Camera, WifiOff, Heart, Pill, Activity, Phone, Keyboard, Upload, X } from "lucide-react";
+import { 
+  AlertCircle, Camera, WifiOff, Heart, Pill, 
+  Activity, Phone, Keyboard, Upload, X, ArrowLeft 
+} from "lucide-react";
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
 
 interface EmergencyProfile {
@@ -34,10 +37,10 @@ export default function ResponderScan() {
   const [showInput, setShowInput] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
 
-  // Refs for scanner instance and hidden file input
   const html5QrRef = useRef<Html5Qrcode | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Network Status Listeners
   useEffect(() => {
     const handleOnline = () => setOnline(true);
     const handleOffline = () => setOnline(false);
@@ -49,7 +52,7 @@ export default function ResponderScan() {
     };
   }, []);
 
-  // Initialize/Stop Camera based on UI state
+  // Camera Management
   useEffect(() => {
     if (showScanner) {
       startCamera();
@@ -71,14 +74,13 @@ export default function ResponderScan() {
         { facingMode: "environment" },
         { fps: 15, qrbox: { width: 250, height: 250 } },
         (decodedText) => {
-          stopCamera();
-          setShowScanner(false);
+          setShowScanner(false); // handleQRScan will stop camera
           handleQRScan(decodedText);
         },
-        () => {} // Ignore frame-by-frame errors
+        () => {} 
       );
     } catch (err) {
-      setError("Camera failed to start. Please check permissions.");
+      setError("Camera failed to start. Check permissions.");
       setShowScanner(false);
     }
   };
@@ -89,7 +91,7 @@ export default function ResponderScan() {
         await html5QrRef.current.stop();
         html5QrRef.current = null;
       } catch (err) {
-        console.error("Failed to stop scanner", err);
+        console.error("Scanner stop error", err);
       }
     }
   };
@@ -98,47 +100,56 @@ export default function ResponderScan() {
     const file = e.target.files?.[0];
     if (!file) return;
     
-    // Reset the input so the same file can be uploaded again if needed
     e.target.value = "";
     setLoading(true);
     setError("");
 
     try {
-      // Use a temporary scanner instance just for the file
       const fileScanner = new Html5Qrcode("reader-hidden");
       const result = await fileScanner.scanFile(file, false);
       handleQRScan(result);
     } catch (err) {
-      setError("Could not find a QR code in that image.");
+      setError("No QR code found in image.");
       toast.error("Scan failed");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleQRScan = async (qrToken: string) => {
+  const handleQRScan = async (decodedText: string) => {
     setLoading(true);
     setError("");
+    await stopCamera();
 
     try {
+      // --- TOKEN PARSING LOGIC ---
+      let token = decodedText.trim();
+      try {
+        if (token.startsWith('http')) {
+          const url = new URL(token);
+          const extracted = url.searchParams.get("token");
+          if (extracted) token = extracted;
+        }
+      } catch (e) { /* Fallback to raw token */ }
+
       if (online) {
-        const response = await apiClient.scanQRCode(qrToken);
+        const response = await apiClient.scanQRCode(token);
         setProfile(response.profile);
 
         if (response.profile.dataAvailable) {
           await cacheProfile({
             ...response.profile,
-            qrToken,
+            qrToken: token,
             lastScanned: new Date(),
           });
         }
       } else {
-        const cached = await getProfileByToken(qrToken);
+        const cached = await getProfileByToken(token);
         if (cached) {
           setProfile({ ...cached, dataAvailable: true } as EmergencyProfile);
-          toast.info(t("responder.offline_mode_active"));
+          toast.info("Offline mode active - using cached data");
         } else {
-          throw new Error(t("errors.profile_not_found_offline"));
+          throw new Error("Profile not found in offline cache.");
         }
       }
       setStep("view");
@@ -151,165 +162,203 @@ export default function ResponderScan() {
   };
 
   const handleManualSubmit = () => {
-    let tokenToSubmit = manualToken.trim();
-    if (/^\d+$/.test(tokenToSubmit)) {
-      tokenToSubmit = `demo-qr-${tokenToSubmit}`;
-    }
-    if (tokenToSubmit) {
-      handleQRScan(tokenToSubmit);
-    }
+    let token = manualToken.trim();
+    if (/^\d+$/.test(token)) token = `demo-qr-${token}`;
+    if (token) handleQRScan(token);
   };
 
   const bloodTypeColors: Record<string, string> = {
     "A+": "bg-red-500", "A-": "bg-red-600",
     "B+": "bg-blue-500", "B-": "bg-blue-600",
     "AB+": "bg-purple-500", "AB-": "bg-purple-600",
-    "O+": "bg-green-500", "O-": "bg-green-600",
+    "O+": "bg-emerald-600", "O-": "bg-emerald-700",
   };
 
-  // Profile View Screen (Step === 'view')
+  // --- VIEW STEP ---
   if (step === "view" && profile) {
     return (
-      <div className="min-h-screen bg-gray-50 p-4 space-y-4">
-        {!online && (
-          <div className="bg-yellow-100 border border-yellow-400 text-yellow-800 p-3 rounded-lg flex items-center gap-2">
-            <WifiOff className="w-5 h-5" />
-            <span>{t("responder.offline_mode_active")}</span>
-          </div>
-        )}
+      <div className="min-h-screen bg-slate-50 p-4 space-y-4 pb-10">
+        <header className="flex items-center justify-between">
+          <Button variant="ghost" size="sm" onClick={() => setStep("scan")}>
+            <ArrowLeft className="w-4 h-4 mr-1" /> {t("common.back")}
+          </Button>
+          {!online && <Badge variant="outline" className="text-orange-600 border-orange-200"><WifiOff className="w-3 h-3 mr-1" /> Offline</Badge>}
+        </header>
 
         {!profile.dataAvailable && (
-          <div className="bg-red-100 border border-red-400 text-red-800 p-4 rounded-lg text-center font-bold text-lg">
-            ⚠️ DATA UNAVAILABLE — Decryption Failed
+          <div className="bg-red-50 border-2 border-red-200 text-red-700 p-4 rounded-xl text-center font-bold">
+            ⚠️ ENCRYPTED DATA UNAVAILABLE
           </div>
         )}
 
-        <div className="flex justify-center">
-          <Badge className={`${bloodTypeColors[profile.bloodType] || "bg-gray-500"} text-white text-4xl px-8 py-4 rounded-2xl`}>
+        <div className="flex flex-col items-center gap-2 py-4">
+          <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">Blood Type</div>
+          <Badge className={`${bloodTypeColors[profile.bloodType] || "bg-slate-500"} text-white text-5xl px-10 py-6 rounded-3xl shadow-lg shadow-slate-200`}>
             {profile.bloodType}
           </Badge>
         </div>
 
-        {/* Reusing your card logic for Allergies, Meds, etc. */}
-        <Card className="border-red-200">
-           <CardHeader className="pb-2">
-             <CardTitle className="text-red-600 flex items-center gap-2">
-               <AlertCircle className="w-5 h-5" /> {t("profile.allergies")}
-             </CardTitle>
-           </CardHeader>
-           <CardContent>
-             {profile.allergies.length > 0 ? (
-               <div className="space-y-2">
-                 {profile.allergies.map((a, i) => (
-                   <div key={i} className="bg-red-50 border border-red-200 p-3 rounded-lg">
-                     <span className="font-semibold">{a.name}</span>
-                     {a.severity && <Badge variant="destructive" className="ml-2">{a.severity}</Badge>}
-                   </div>
-                 ))}
-               </div>
-             ) : (
-               <p className="text-gray-500">{t("profile.no_allergies")}</p>
-             )}
-           </CardContent>
+        {/* Allergies */}
+        <Card className="border-red-100 shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-red-600 flex items-center gap-2 text-lg">
+              <AlertCircle className="w-5 h-5" /> {t("profile.allergies")}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-wrap gap-2">
+            {profile.allergies.length > 0 ? (
+              profile.allergies.map((a, i) => (
+                <div key={i} className="bg-red-50 border border-red-100 px-3 py-1.5 rounded-lg flex items-center gap-2">
+                  <span className="font-bold text-red-700 text-sm">{a.name}</span>
+                  {a.severity && <Badge className="bg-red-200 text-red-800 hover:bg-red-200 text-[10px] h-5">{a.severity}</Badge>}
+                </div>
+              ))
+            ) : <p className="text-slate-400 italic text-sm">None reported</p>}
+          </CardContent>
         </Card>
-        
-        {/* ... Other cards (Medications, Conditions, Contacts) remain as per your logic ... */}
 
-        <Button onClick={() => { setStep("scan"); setProfile(null); setManualToken(""); setShowInput(false); setShowScanner(false); }} className="w-full">
-          {t("responder.scan_another")}
+        {/* Medications */}
+        <Card className="shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-slate-800 flex items-center gap-2 text-lg">
+              <Pill className="w-5 h-5 text-teal-600" /> {t("profile.medications")}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {profile.medications.length > 0 ? (
+              profile.medications.map((m, i) => (
+                <div key={i} className="border-l-4 border-teal-500 pl-3 py-1">
+                  <div className="font-bold text-slate-800">{m.name}</div>
+                  <div className="text-xs text-slate-500">{m.dosage} • {m.frequency}</div>
+                </div>
+              ))
+            ) : <p className="text-slate-400 italic text-sm">None reported</p>}
+          </CardContent>
+        </Card>
+
+        {/* Conditions */}
+        <Card className="shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-slate-800 flex items-center gap-2 text-lg">
+              <Activity className="w-5 h-5 text-blue-600" /> {t("profile.conditions")}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {profile.conditions.length > 0 ? (
+              <ul className="list-disc list-inside text-slate-700 space-y-1">
+                {profile.conditions.map((c, i) => <li key={i}>{c}</li>)}
+              </ul>
+            ) : <p className="text-slate-400 italic text-sm">None reported</p>}
+          </CardContent>
+        </Card>
+
+        {/* Emergency Contacts */}
+        <Card className="shadow-sm border-blue-100">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-slate-800 flex items-center gap-2 text-lg">
+              <Phone className="w-5 h-5 text-blue-600" /> {t("profile.contacts")}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {profile.contacts.map((c, i) => (
+              <div key={i} className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                <div className="flex justify-between items-start mb-2">
+                  <div>
+                    <div className="font-bold text-slate-900">{c.name}</div>
+                    <div className="text-xs text-slate-500 uppercase font-semibold">{c.relation}</div>
+                  </div>
+                </div>
+                <Button className="w-full bg-blue-600 hover:bg-blue-700" asChild>
+                  <a href={`tel:${c.phone}`}><Phone className="w-4 h-4 mr-2" /> Call {c.phone}</a>
+                </Button>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+
+        <Button onClick={() => setStep("scan")} className="w-full mt-4" variant="outline">
+          Scan Another Profile
         </Button>
       </div>
     );
   }
 
-  // Scanner Home Screen (Step === 'scan')
+  // --- SCAN STEP ---
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-gray-50">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle className="text-center flex items-center justify-center gap-2">
-            <Heart className="w-6 h-6 text-red-500" />
-            MyUZIMA — Emergency Scanner
+    <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-slate-50">
+      <Card className="w-full max-w-md shadow-xl border-none">
+        <CardHeader className="text-center">
+          <div className="mx-auto w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mb-2">
+            <Heart className="w-8 h-8 text-red-500 fill-red-500" />
+          </div>
+          <CardTitle className="text-2xl font-black text-slate-800 tracking-tight">
+            MyUZIMA Responder
           </CardTitle>
+          <p className="text-sm text-slate-500">Authorized Emergency Access Only</p>
         </CardHeader>
+        
         <CardContent className="space-y-4">
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-lg text-sm">
-              {error}
+            <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-xl text-sm flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" /> {error}
             </div>
           )}
 
-          {/* Hidden containers for scanner initialization and file logic */}
           <div id="reader-hidden" className="hidden"></div>
           
-          {/* Main Scanner View */}
-          {showScanner && (
-             <div className="space-y-4">
-               <div id="reader" className="w-full rounded-lg overflow-hidden bg-black aspect-square"></div>
-               <Button variant="outline" onClick={() => setShowScanner(false)} className="w-full">
-                 <X className="w-4 h-4 mr-2" /> Cancel Scan
-               </Button>
-             </div>
-          )}
-
-          {/* Initial Menu */}
-          {!showInput && !showScanner && (
+          {showScanner ? (
+            <div className="space-y-4">
+              <div id="reader" className="w-full rounded-2xl overflow-hidden bg-black aspect-square shadow-inner"></div>
+              <Button variant="ghost" onClick={() => setShowScanner(false)} className="w-full text-slate-500">
+                <X className="w-4 h-4 mr-2" /> Cancel
+              </Button>
+            </div>
+          ) : (
             <div className="space-y-3">
-              <Button onClick={() => setShowScanner(true)} disabled={loading} className="w-full" size="lg">
-                <Camera className="w-5 h-5 mr-2" />
-                Scan QR Code (Camera)
-              </Button>
+              {!showInput ? (
+                <>
+                  <Button onClick={() => setShowScanner(true)} disabled={loading} className="w-full h-16 text-lg bg-teal-600 hover:bg-teal-700 shadow-md">
+                    <Camera className="w-6 h-6 mr-3" /> Scan QR Code
+                  </Button>
 
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handleFileUpload}
-              />
-              <Button 
-                variant="outline" 
-                onClick={() => fileInputRef.current?.click()} 
-                disabled={loading} 
-                className="w-full"
-              >
-                <Upload className="w-4 h-4 mr-2" />
-                Upload QR from Gallery
-              </Button>
-
-              <Button variant="outline" onClick={() => setShowInput(true)} disabled={loading} className="w-full">
-                <Keyboard className="w-4 h-4 mr-2" />
-                Enter Token Manually
-              </Button>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Button variant="outline" onClick={() => fileInputRef.current?.click()} disabled={loading} className="h-12 border-slate-200">
+                      <Upload className="w-4 h-4 mr-2" /> Gallery
+                    </Button>
+                    <Button variant="outline" onClick={() => setShowInput(true)} disabled={loading} className="h-12 border-slate-200">
+                      <Keyboard className="w-4 h-4 mr-2" /> Manual
+                    </Button>
+                  </div>
+                  
+                  <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileUpload} />
+                </>
+              ) : (
+                <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2">
+                  <input
+                    className="w-full h-12 border-2 rounded-xl px-4 text-center text-lg font-mono tracking-widest focus:border-teal-500 outline-none"
+                    placeholder="Enter Token"
+                    value={manualToken}
+                    onChange={(e) => setManualToken(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleManualSubmit()}
+                    autoFocus
+                  />
+                  <div className="flex gap-2">
+                    <Button variant="ghost" onClick={() => { setShowInput(false); setManualToken(""); }} className="flex-1">Cancel</Button>
+                    <Button onClick={handleManualSubmit} className="flex-1 bg-teal-600">Submit</Button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
-          {/* Manual Input View */}
-          {showInput && !showScanner && (
-            <div className="space-y-2">
-              <input
-                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Enter QR token (e.g., 1774719612135)"
-                value={manualToken}
-                onChange={(e) => setManualToken(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleManualSubmit()}
-                autoFocus
-                disabled={loading}
-              />
-              <div className="flex gap-2">
-                <Button variant="outline" onClick={() => { setShowInput(false); setManualToken(""); setError(""); }} disabled={loading} className="flex-1">
-                  Cancel
-                </Button>
-                <Button onClick={handleManualSubmit} disabled={loading || !manualToken.trim()} className="flex-1">
-                  {loading ? "Processing..." : "Submit"}
-                </Button>
-              </div>
-            </div>
-          )}
-
-          <p className="text-center text-sm text-gray-500 mt-4">
-            {t("responder.scan_instructions")}
-          </p>
+          <div className="pt-4 border-t border-slate-100">
+             <div className="flex items-center justify-center gap-4 text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+                <span className={online ? "text-emerald-500" : "text-red-400"}>
+                  {online ? "● System Online" : "○ System Offline"}
+                </span>
+                <span>• Secure Encryption</span>
+             </div>
+          </div>
         </CardContent>
       </Card>
     </div>
